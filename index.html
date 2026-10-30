@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spectromorphology — Калейдоскопический бумажный визуализатор</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #050608;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 24px;
+      color: rgba(255, 255, 255, 0.7);
+      pointer-events: none;
+      z-index: 10;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+    }
+    #hud h1 {
+      font-size: 16px;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 4px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    #hud p {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <h1>Spectromorphology</h1>
+    <p>Калейдоскопические бумажные мазки · Рыбья кинематика</p>
+  </div>
+  <div id="canvas-container"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

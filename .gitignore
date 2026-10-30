@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Reference / research materials (large binary files, not source code)
+references/
+
+# Agent / AI tooling internals
+.agents/
+
+# OS & editor
+.DS_Store
+Thumbs.db
+*.suo
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.local
