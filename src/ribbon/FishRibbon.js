@@ -237,28 +237,54 @@ export class FishRibbon {
       Math.sin(time * 1.93 + phi * 1.618) * 0.9 +
       Math.sin(time * 0.37 + phi * 2.718) * 0.7;
 
-    // 3. Soft centripetal boundary steering (keeps the brush gracefully within the mandala field)
+    // 3. Gentle centripetal boundary steering
+    // When approaching the outer realm and heading outward, smoothly bias angular velocity
+    // so the brush curves into a tangential/inward path without hitting an invisible wall.
+    // Brushes are allowed to venture off-screen; their turn curvature strictly obeys minTurnRadius.
     const r = this.headPos.length();
     const rOuter = this.maxBoundaryRadius;
-    const rInner = rOuter * 0.70; // Outer 30% acts as a soft steering return buffer zone
+    const rSoft = rOuter * 0.75;
     let boundarySteer = 0.0;
-    let boundaryPush = 0.0;
 
-    if (r > rInner) {
-      boundaryPush = Math.min(1.5, (r - rInner) / Math.max(0.01, rOuter - rInner));
-      // Angle pointing back toward the origin (0, 0)
-      const toCenterAngle = Math.atan2(-this.headPos.y, -this.headPos.x);
-      // Angular difference between heading and center
-      let angleDiff = toCenterAngle - this.headingAngle;
-      // Wrap to [-π, π]
-      angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+    if (r > 0.001) {
+      // Unit radial vector (pointing outward from origin)
+      const invR = 1.0 / r;
+      const rx = this.headPos.x * invR;
+      const ry = this.headPos.y * invR;
 
-      // Steer toward center with increasing urgency as radius grows
-      boundarySteer = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 3.0) * boundaryPush * 3.5;
+      // Unit heading vector
+      const hx = Math.cos(this.headingAngle);
+      const hy = Math.sin(this.headingAngle);
+
+      // Radial velocity component: > 0 moving outward, <= 0 moving inward
+      const vOut = hx * rx + hy * ry;
+
+      // 2D cross product (radial x heading):
+      // cross = rx * hy - ry * hx = sin(headingAngle - radialAngle)
+      // Positive cross means heading is counter-clockwise of radial -> turning CCW (+omega) turns inward.
+      // Negative cross means heading is clockwise of radial -> turning CW (-omega) turns inward.
+      const cross = rx * hy - ry * hx;
+      const turnDir = cross >= 0 ? 1.0 : -1.0;
+
+      if (r > rSoft) {
+        const excess = (r - rSoft) / Math.max(0.01, rOuter - rSoft);
+        if (vOut > 0.0) {
+          // Gently curve inward away from radial direction.
+          // Steering urgency scales smoothly with distance and outward velocity.
+          const urgency = 0.6 + excess * 1.5;
+          boundarySteer = turnDir * urgency * Math.max(0.2, vOut);
+        } else if (r > rOuter) {
+          // Already heading inward or tangential, but outside primary boundary:
+          // Keep a very mild inward bias until comfortably inside
+          const mildUrgency = Math.min(1.0, (r - rOuter) * 1.5);
+          boundarySteer = turnDir * mildUrgency * 0.4;
+        }
+      }
     }
 
-    // Combine wander and boundary return (boundary takes priority near the rim)
-    const wanderWeight = Math.max(0.0, 1.0 - boundaryPush * 0.8);
+    // Combine wander and boundary return
+    // Wander retains organic life even outside, never abruptly clamped to zero
+    const wanderWeight = r > rOuter ? THREE.MathUtils.clamp(1.0 - (r - rOuter) * 0.8, 0.45, 1.0) : 1.0;
     let desiredOmega =
       wander * wanderWeight * this.audioSteerMult +
       boundarySteer +
@@ -281,16 +307,16 @@ export class FishRibbon {
       this.angularVelocity = THREE.MathUtils.clamp(this.angularVelocity, -maxOmega, maxOmega);
     }
 
-    // 6. Integrate heading angle and step position forward
+    // 6. Integrate heading angle and step position forward (100% smooth, continuous trajectory)
     this.headingAngle += this.angularVelocity * clampedDt;
     this.headPos.x += Math.cos(this.headingAngle) * v * clampedDt;
     this.headPos.y += Math.sin(this.headingAngle) * v * clampedDt;
 
-    // Failsafe perimeter guard: ensure brush head stays safely within FBO boundaries
-    const maxHardLimit = Math.min(0.65, rOuter + 0.05);
-    const curR = this.headPos.length();
-    if (curR > maxHardLimit) {
-      this.headPos.multiplyScalar(maxHardLimit / curR);
+    // Soft elastic safety tether ONLY for extreme deep outer space (r > 1.25)
+    // Never snaps or clamps position; guarantees safe return even under wild user input
+    if (r > 1.25) {
+      const elasticPull = Math.min(1.0, (r - 1.25) * 1.5);
+      this.headPos.lerp(new THREE.Vector2(0, 0), elasticPull * clampedDt * 2.0);
     }
 
     return this.headPos;
