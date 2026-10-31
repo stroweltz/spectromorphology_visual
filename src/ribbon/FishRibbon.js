@@ -27,8 +27,25 @@ export class FishRibbon {
 
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
-    // Larger value = smoother, wider turns.  0 = no constraint.
+    // Governs max angular velocity: |ω_max| = v / minTurnRadius.
     this.minTurnRadius = options.minTurnRadius ?? 0.12;
+
+    // ── Steering Kinematics Agent State ──
+    // The brush head is an autonomous self-steering body with forward velocity v,
+    // continuous heading angle θ, and strictly bounded angular velocity ω.
+    this.headPos = new THREE.Vector2(
+      Math.cos(this.phaseOffset) * (this.pathRadius || 0.32),
+      Math.sin(this.phaseOffset) * (this.pathRadius || 0.32)
+    );
+    // Initial heading: tangent to circular orbit (counter-clockwise)
+    this.headingAngle = this.phaseOffset + Math.PI * 0.5;
+    this.angularVelocity = 0.0;
+    this.maxBoundaryRadius = 0.44; // Soft perimeter boundary of the mandala field
+
+    // Audio reactivity / external modulation hooks (for future sound driver)
+    this.audioSpeedMult = 1.0;
+    this.audioSteerMult = 1.0;
+    this.audioExtraAngular = 0.0;
 
     // Material
     this.material = createPaperMaterial(options.color || 0xff385c);
@@ -36,14 +53,17 @@ export class FishRibbon {
 
     // Spine points (positions along the backbone)
     this.spine = [];
+    const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
+    const initSegDist = 0.018 * (this.speed / 1.0);
     for (let i = 0; i < this.segments; i++) {
-      this.spine.push(new THREE.Vector2(0, 0));
+      const p = this.headPos.clone().addScaledVector(initDir, -i * initSegDist);
+      this.spine.push(p);
     }
 
     // Secondary spine for the split/divergent branch
     this.splitSpine = [];
     for (let i = 0; i < this.segments; i++) {
-      this.splitSpine.push(new THREE.Vector2(0, 0));
+      this.splitSpine.push(this.spine[i].clone());
     }
 
     // ── Reusable temp vectors (avoid per-frame allocations / GC pressure) ──
@@ -54,11 +74,6 @@ export class FishRibbon {
     this._tmpLeft     = new THREE.Vector2();
     this._tmpRight    = new THREE.Vector2();
     this._tmpHead     = new THREE.Vector2();
-
-    // ── Turn-radius limiter state ──
-    this._prevHeadPos  = new THREE.Vector2();
-    this._prevHeading  = new THREE.Vector2(1, 0);
-    this._headInited   = false;
 
     // ── Max instances for mandala sectors × 2 (mirror) ──
     this._maxInstances = 64;
@@ -160,82 +175,112 @@ export class FishRibbon {
   }
 
   /**
-   * Evaluates the leading head position on an organic Lissajous / Rose path.
-   * Writes into this._tmpHead to avoid allocation.
+   * Resets the brush head to its initial orbit position and straightens the spine.
    */
-  _getHeadPosition(t) {
-    const angle1 = t * this.orbitSpeed + this.phaseOffset;
-    const angle2 = t * (this.orbitSpeed * 1.618) + this.phaseOffset * 1.4;
-    
-    // Rose / Epitrochoid looping trajectory
-    const r = this.pathRadius * (0.8 + 0.35 * Math.sin(t * 0.7 + this.phaseOffset));
-    const x = Math.cos(angle1) * r + 0.08 * Math.cos(angle2 * 2.0);
-    const y = Math.sin(angle1) * r + 0.08 * Math.sin(angle2 * 2.0);
+  reset() {
+    const initR = this.pathRadius || 0.32;
+    this.headPos.set(
+      Math.cos(this.phaseOffset) * initR,
+      Math.sin(this.phaseOffset) * initR
+    );
+    this.headingAngle = this.phaseOffset + Math.PI * 0.5;
+    this.angularVelocity = 0.0;
 
-    return this._tmpHead.set(x, y);
+    const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
+    const initSegDist = 0.018 * (this.speed / 1.0);
+    for (let i = 0; i < this.segments; i++) {
+      this.spine[i].copy(this.headPos).addScaledVector(initDir, -i * initSegDist);
+      this.splitSpine[i].copy(this.spine[i]);
+    }
   }
 
   /**
-   * Clamps curvature so the head can't turn sharper than minTurnRadius.
-   * A gentle spring correction (6 % per frame) prevents long-term drift
-   * from the desired Lissajous path.
+   * Updates the autonomous brush agent using steering kinematics.
    *
-   * @param {number} desiredX – raw head X from _getHeadPosition
-   * @param {number} desiredY – raw head Y from _getHeadPosition
-   * @returns {THREE.Vector2}   clamped position (writes into _tmpHead)
+   * Kinematic model:
+   *  - Linear velocity:  v = orbitSpeed * 0.75 * audioSpeedMult
+   *  - Angular velocity: ω is driven by smooth multi-harmonic wandering and a soft
+   *                      centripetal restoring force keeping the brush inside the mandala.
+   *  - Curvature limit:  |ω| ≤ v / R_min, mathematically guaranteeing that the turning
+   *                      radius R = v / |ω| is strictly ≥ minTurnRadius at every point.
+   *
+   * @param {number} time – elapsed time in seconds
+   * @param {number} dt   – delta time since last frame
+   * @returns {THREE.Vector2} updated head position
    */
-  _applyTurnLimit(desiredX, desiredY) {
-    if (!this._headInited) {
-      this._prevHeadPos.set(desiredX, desiredY);
-      this._prevHeading.set(1, 0);
-      this._headInited = true;
-      return this._tmpHead.set(desiredX, desiredY);
+  _updateHeadAgent(time, dt) {
+    // Clamp dt to avoid huge jumps on tab switch / lag spike
+    const clampedDt = Math.min(Math.max(dt || 0.016, 0.001), 0.05);
+
+    // 1. Forward linear velocity
+    const v = Math.max(0.0, this.orbitSpeed * 0.75 * this.audioSpeedMult);
+
+    if (v < 0.0001) {
+      return this.headPos;
     }
 
-    // Vector from previous position to desired position
-    let dx = desiredX - this._prevHeadPos.x;
-    let dy = desiredY - this._prevHeadPos.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    // 2. Multi-harmonic organic wandering (irrational ratio frequencies ensure non-repeating curves)
+    const phi = this.phaseOffset;
+    const wander =
+      Math.sin(time * 0.85 + phi) * 1.5 +
+      Math.sin(time * 1.93 + phi * 1.618) * 0.9 +
+      Math.sin(time * 0.37 + phi * 2.718) * 0.7;
 
-    if (dist < 0.00001) {
-      return this._tmpHead.copy(this._prevHeadPos);
+    // 3. Soft centripetal boundary steering (keeps the brush gracefully within the mandala field)
+    const r = this.headPos.length();
+    const rInner = 0.22;
+    const rOuter = this.maxBoundaryRadius;
+    let boundarySteer = 0.0;
+    let boundaryPush = 0.0;
+
+    if (r > rInner) {
+      boundaryPush = Math.min(1.0, (r - rInner) / Math.max(0.01, rOuter - rInner));
+      // Angle pointing back toward the origin (0, 0)
+      const toCenterAngle = Math.atan2(-this.headPos.y, -this.headPos.x);
+      // Angular difference between heading and center
+      let angleDiff = toCenterAngle - this.headingAngle;
+      // Wrap to [-π, π]
+      angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+
+      // Steer toward center with increasing urgency as radius grows
+      boundarySteer = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 3.0) * boundaryPush * 3.2;
     }
 
-    // Desired heading (unit vector)
-    const dhx = dx / dist;
-    const dhy = dy / dist;
+    // Combine wander and boundary return (boundary takes priority near the rim)
+    let desiredOmega =
+      wander * (1.0 - boundaryPush * 0.75) * this.audioSteerMult +
+      boundarySteer +
+      this.audioExtraAngular;
 
-    // Angle between previous heading and desired heading
-    const cross = this._prevHeading.x * dhy - this._prevHeading.y * dhx;
-    const dot   = this._prevHeading.x * dhx + this._prevHeading.y * dhy;
-    let angle   = Math.atan2(cross, dot);
-
-    // Max allowed turn angle for this step:  Δθ_max = arcLength / R
-    const maxAngle = dist / Math.max(0.001, this.minTurnRadius);
-
-    if (Math.abs(angle) > maxAngle) {
-      angle = Math.sign(angle) * maxAngle;
+    // 4. Strict curvature / minimum turning radius constraint:
+    //    R = v / |ω|  =>  |ω_max| = v / R_min
+    if (this.minTurnRadius > 0.001) {
+      const maxOmega = v / this.minTurnRadius;
+      desiredOmega = THREE.MathUtils.clamp(desiredOmega, -maxOmega, maxOmega);
     }
 
-    // Compute clamped heading
-    const c  = Math.cos(angle);
-    const s  = Math.sin(angle);
-    const hx = this._prevHeading.x * c - this._prevHeading.y * s;
-    const hy = this._prevHeading.x * s + this._prevHeading.y * c;
+    // 5. Angular inertia (smooth acceleration into turns, avoids instant angular snaps)
+    const steerInertiaRate = 9.0;
+    this.angularVelocity += (desiredOmega - this.angularVelocity) * Math.min(1.0, clampedDt * steerInertiaRate);
 
-    // New position along clamped heading
-    let nx = this._prevHeadPos.x + hx * dist;
-    let ny = this._prevHeadPos.y + hy * dist;
+    // Re-verify physical clamp after inertia
+    if (this.minTurnRadius > 0.001) {
+      const maxOmega = v / this.minTurnRadius;
+      this.angularVelocity = THREE.MathUtils.clamp(this.angularVelocity, -maxOmega, maxOmega);
+    }
 
-    // Gentle spring correction toward the desired trajectory (prevents drift)
-    const pull = 0.06;
-    nx += (desiredX - nx) * pull;
-    ny += (desiredY - ny) * pull;
+    // 6. Integrate heading angle and step position forward
+    this.headingAngle += this.angularVelocity * clampedDt;
+    this.headPos.x += Math.cos(this.headingAngle) * v * clampedDt;
+    this.headPos.y += Math.sin(this.headingAngle) * v * clampedDt;
 
-    this._prevHeadPos.set(nx, ny);
-    this._prevHeading.set(hx, hy);
+    // Failsafe perimeter guard (soft bounce/containment if extreme speed)
+    const curR = this.headPos.length();
+    if (curR > rOuter + 0.04) {
+      this.headPos.multiplyScalar((rOuter + 0.04) / curR);
+    }
 
-    return this._tmpHead.set(nx, ny);
+    return this.headPos;
   }
 
   /**
@@ -245,11 +290,8 @@ export class FishRibbon {
     this.material.uniforms.uTime.value = time;
     this.splitMaterial.uniforms.uTime.value = time;
 
-    // 1. Calculate leading head (with turn-radius constraint)
-    const raw = this._getHeadPosition(time);
-    const head = (this.minTurnRadius > 0)
-      ? this._applyTurnLimit(raw.x, raw.y)
-      : raw;
+    // 1. Calculate leading head via autonomous steering kinematics
+    const head = this._updateHeadAgent(time, delta);
     this.spine[0].copy(head);
 
     // 2. Spine follow-through (IK kinematic drag from head to tail)
