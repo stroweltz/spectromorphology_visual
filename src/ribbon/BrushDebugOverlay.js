@@ -8,52 +8,56 @@ import * as THREE from 'three';
  *  - A glowing head dot at the leading vertex
  *  - A velocity arrow indicating direction and speed
  *  - Ghost trail: last N head positions with fading opacity
- *  - Kaleidoscope wedge: the exact sector slice the shader tiles N× to fill the circle
+ *  - Mandala symmetry guides: all N sector rays, base sector highlight,
+ *    mirror reflection axes, and boundary ring
  */
 export class BrushDebugOverlay {
   /**
    * @param {THREE.Scene}    scene           – the strokeScene to add helpers into
    * @param {FishRibbon[]}   ribbons         – the live ribbon instances
-   * @param {object}         kaleidoUniforms – live uniforms object from kaleidoscopeMaterial
-   *   Expected keys: uSectors, uZoom, uRotation
+   * @param {object}         kaleidoUniforms – live uniforms object (uSectors, uMirror, uZoom, etc.)
    */
   constructor(scene, ribbons, kaleidoUniforms) {
     this.scene   = scene;
     this.ribbons = ribbons;
-    this._ku     = kaleidoUniforms; // live reference — stays in sync automatically
+    this._ku     = kaleidoUniforms; // live reference
 
     this.visible = false;
+    this._ribbonVisible = ribbons.map(() => true);
 
     // Ghost trail history per ribbon
-    this._trailLength = 60;
+    this._trailLength = 80;
     this._trails = ribbons.map(() => []); // Array<Array<{x, y}>>
 
     // Colors matching each ribbon's base color
     this._colors = [
-      new THREE.Color(0xff6688),  // ribbon 0 – crimson-ish
+      new THREE.Color(0xff6688),  // ribbon 0 – crimson
       new THREE.Color(0x00eeff),  // ribbon 1 – cyan
       new THREE.Color(0xcc88ff),  // ribbon 2 – violet
     ];
 
     // Build Three.js helpers
-    this._spineLines  = this._buildSpineLines();
-    this._headDots    = this._buildHeadDots();
-    this._arrows      = this._buildArrows();
-    this._ghostTrails = this._buildGhostTrails();
-    this._wedge       = this._buildKaleidoWedge();
-    this._label       = this._buildLabel();
+    this._spineLines     = this._buildSpineLines();
+    this._headDots       = this._buildHeadDots();
+    this._arrows         = this._buildArrows();
+    this._ghostTrails    = this._buildGhostTrails();
+    this._mandalaGuides  = this._buildMandalaGuides();
+    this._label          = this._buildLabel();
 
     // Add all to scene (initially hidden)
     this._spineLines.forEach(o  => scene.add(o));
     this._headDots.forEach(o    => scene.add(o));
     this._arrows.forEach(o      => scene.add(o));
     this._ghostTrails.forEach(g => g.forEach(o => scene.add(o)));
-    scene.add(this._wedge.fill);
-    scene.add(this._wedge.edge1);
-    scene.add(this._wedge.edge2);
-    scene.add(this._wedge.bisector);
-    scene.add(this._wedge.arc);
-    scene.add(this._wedge.label);
+
+    const mg = this._mandalaGuides;
+    scene.add(mg.fill);
+    scene.add(mg.spokes);
+    scene.add(mg.mirrorRays);
+    scene.add(mg.baseRays);
+    scene.add(mg.ring);
+    scene.add(mg.label);
+
     scene.add(this._label);
 
     this.setVisible(false);
@@ -63,16 +67,16 @@ export class BrushDebugOverlay {
 
   _buildSpineLines() {
     return this.ribbons.map((ribbon, idx) => {
-      const count    = ribbon.segments;
+      const count     = ribbon.segments;
       const positions = new Float32Array(count * 3);
-      const geom     = new THREE.BufferGeometry();
+      const geom      = new THREE.BufferGeometry();
       geom.setAttribute('position',
         new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
 
       const mat = new THREE.LineBasicMaterial({
         color: this._colors[idx] ?? new THREE.Color(0xffffff),
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.8,
         depthTest: false,
       });
 
@@ -156,185 +160,200 @@ export class BrushDebugOverlay {
     });
   }
 
-  // ──────────────────── kaleidoscope wedge ─────────────────
+  // ──────────────────── mandala symmetry guides ───────────────
 
   /**
-   * Builds the "source wedge" — the pie-slice the kaleidoscope shader
-   * reads from the FBO and tiles N× around the circle.
-   *
-   * Coordinate mapping:
-   *   strokeCamera covers world [-0.7, +0.7] on both axes.
-   *   FBO UV [0,1] ↔ world:   world = (uv − 0.5) × 1.4
-   *   So FBO centre (UV 0.5, 0.5) = world origin (0, 0). ✓
-   *
-   * The shader folds each pixel's angle θ into the first sector [0, 2π/N],
-   * then reads:  sampleUV = (cos θ, sin θ) × r  +  (0.5, 0.5)
-   *
-   * In world space that is:  sampleWorld = (cos θ, sin θ) × r × 1.4
-   * The wedge spans [rotation, rotation + 2π/N] and reaches out to radius R.
-   *
-   * The dashed bisector at rotation + π/N is the mirror-fold axis (when
-   * uMirror is on): both half-wedges are reflections of each other.
+   * Builds the mandala symmetry guide elements:
+   *  - Faint filled wedge highlighting Sector 0 (base sector)
+   *  - Base sector rays (brighter)
+   *  - All sector spokes (radial symmetry axes)
+   *  - Mirror bisector rays (reflection axes, if mirror enabled)
+   *  - Bounding circle (radius 0.65)
+   *  - Status label showing sector count and mirror state
    */
-  _buildKaleidoWedge() {
-    const ARC_STEPS = 80;
+  _buildMandalaGuides() {
+    const MAX_SPOKES = 64;
+    const CIRCLE_STEPS = 96;
 
-    // ── Filled pie (very faint) ───────────────────────────────
-    const fillVerts = new Float32Array((ARC_STEPS + 2) * 3);
-    const fillGeom  = new THREE.BufferGeometry();
+    // 1. Sector 0 highlight fan (faint wedge)
+    const fillVerts = new Float32Array((CIRCLE_STEPS + 2) * 3);
+    const fillGeom = new THREE.BufferGeometry();
     fillGeom.setAttribute('position',
       new THREE.BufferAttribute(fillVerts, 3).setUsage(THREE.DynamicDrawUsage));
     const fillIdx = [];
-    for (let i = 0; i < ARC_STEPS; i++) fillIdx.push(0, i + 1, i + 2);
+    for (let i = 0; i < CIRCLE_STEPS; i++) fillIdx.push(0, i + 1, i + 2);
     fillGeom.setIndex(fillIdx);
-    const fillMat  = new THREE.MeshBasicMaterial({
+    const fillMat = new THREE.MeshBasicMaterial({
       color: 0xffee44, transparent: true, opacity: 0.04,
       depthTest: false, side: THREE.DoubleSide,
     });
     const fill = new THREE.Mesh(fillGeom, fillMat);
     fill.renderOrder = 2;
 
-    // ── Helper: build a 2-point line ─────────────────────────
-    const makeLine = (color, opacity = 0.9) => {
-      const verts = new Float32Array(2 * 3);
-      const geom  = new THREE.BufferGeometry();
-      geom.setAttribute('position',
-        new THREE.BufferAttribute(verts, 3).setUsage(THREE.DynamicDrawUsage));
-      const mat = new THREE.LineBasicMaterial({
-        color, transparent: true, opacity, depthTest: false,
-      });
-      const line = new THREE.Line(geom, mat);
-      line.renderOrder = 12;
-      return line;
-    };
-
-    const edge1    = makeLine(0xffee44, 0.95);  // first ray  (solid yellow)
-    const edge2    = makeLine(0xffee44, 0.95);  // second ray (solid yellow)
-    const bisector = makeLine(0xffd700, 0.45);  // mirror axis (dimmer)
-
-    // ── Arc ──────────────────────────────────────────────────
-    const arcVerts = new Float32Array((ARC_STEPS + 1) * 3);
-    const arcGeom  = new THREE.BufferGeometry();
-    arcGeom.setAttribute('position',
-      new THREE.BufferAttribute(arcVerts, 3).setUsage(THREE.DynamicDrawUsage));
-    const arcMat = new THREE.LineBasicMaterial({
-      color: 0xffee44, transparent: true, opacity: 0.65, depthTest: false,
+    // 2. All Sector Spokes (up to 64 rays)
+    const spokeVerts = new Float32Array(MAX_SPOKES * 2 * 3);
+    const spokeGeom = new THREE.BufferGeometry();
+    spokeGeom.setAttribute('position',
+      new THREE.BufferAttribute(spokeVerts, 3).setUsage(THREE.DynamicDrawUsage));
+    const spokeMat = new THREE.LineBasicMaterial({
+      color: 0xffdd44, transparent: true, opacity: 0.35, depthTest: false,
     });
-    const arc = new THREE.Line(arcGeom, arcMat);
-    arc.renderOrder = 12;
+    const spokes = new THREE.LineSegments(spokeGeom, spokeMat);
+    spokes.renderOrder = 11;
 
-    // ── Text label ────────────────────────────────────────────
-    const canvas = document.createElement('canvas');
-    canvas.width  = 400;
-    canvas.height = 52;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(10,10,10,0.65)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = 'bold 18px monospace';
-    ctx.fillStyle = '#ffee44';
-    ctx.fillText('◀ этот клин ×N = калейдоскоп', 8, 34);
-    const tex = new THREE.CanvasTexture(canvas);
+    // 3. Mirror bisector rays (up to 64 rays)
+    const mirrorVerts = new Float32Array(MAX_SPOKES * 2 * 3);
+    const mirrorGeom = new THREE.BufferGeometry();
+    mirrorGeom.setAttribute('position',
+      new THREE.BufferAttribute(mirrorVerts, 3).setUsage(THREE.DynamicDrawUsage));
+    const mirrorMat = new THREE.LineBasicMaterial({
+      color: 0x66ccff, transparent: true, opacity: 0.3, depthTest: false,
+    });
+    const mirrorRays = new THREE.LineSegments(mirrorGeom, mirrorMat);
+    mirrorRays.renderOrder = 11;
+
+    // 4. Base sector primary rays (start = 0, end = sectorAngle)
+    const baseVerts = new Float32Array(4 * 3);
+    const baseGeom = new THREE.BufferGeometry();
+    baseGeom.setAttribute('position',
+      new THREE.BufferAttribute(baseVerts, 3).setUsage(THREE.DynamicDrawUsage));
+    const baseMat = new THREE.LineBasicMaterial({
+      color: 0xffee44, transparent: true, opacity: 0.85, depthTest: false,
+    });
+    const baseRays = new THREE.LineSegments(baseGeom, baseMat);
+    baseRays.renderOrder = 12;
+
+    // 5. Outer boundary ring
+    const ringVerts = new Float32Array((CIRCLE_STEPS + 1) * 3);
+    const ringGeom = new THREE.BufferGeometry();
+    ringGeom.setAttribute('position',
+      new THREE.BufferAttribute(ringVerts, 3).setUsage(THREE.DynamicDrawUsage));
+    for (let i = 0; i <= CIRCLE_STEPS; i++) {
+      const a = (i / CIRCLE_STEPS) * Math.PI * 2;
+      ringVerts[i * 3 + 0] = Math.cos(a) * 0.65;
+      ringVerts[i * 3 + 1] = Math.sin(a) * 0.65;
+      ringVerts[i * 3 + 2] = 0.03;
+    }
+    const ringMat = new THREE.LineBasicMaterial({
+      color: 0xffdd44, transparent: true, opacity: 0.25, depthTest: false,
+    });
+    const ring = new THREE.Line(ringGeom, ringMat);
+    ring.renderOrder = 11;
+
+    // 6. Dynamic status label
+    const labelCanvas = document.createElement('canvas');
+    labelCanvas.width = 512;
+    labelCanvas.height = 64;
+    const labelTex = new THREE.CanvasTexture(labelCanvas);
     const labelMat = new THREE.SpriteMaterial({
-      map: tex, transparent: true, depthTest: false,
+      map: labelTex, depthTest: false, transparent: true,
     });
     const label = new THREE.Sprite(labelMat);
-    label.scale.set(0.52, 0.072, 1);
-    label.renderOrder = 31;
+    label.scale.set(0.65, 0.08, 1);
+    label.position.set(0, -0.63, 0.1);
+    label.renderOrder = 30;
 
-    return { fill, edge1, edge2, bisector, arc, label, _arcSteps: ARC_STEPS };
+    return {
+      fill,
+      spokes,
+      mirrorRays,
+      baseRays,
+      ring,
+      label,
+      _labelCanvas: labelCanvas,
+      _labelTex: labelTex,
+      _circleSteps: CIRCLE_STEPS,
+      _maxSpokes: MAX_SPOKES,
+      _lastSectors: -1,
+      _lastMirror: -1,
+    };
   }
 
   /**
-   * Recomputes wedge geometry each frame from live kaleidoscope uniforms.
-   *
-   * Wedge angles:
-   *   start = uRotation
-   *   end   = uRotation + 2π / uSectors
-   *
-   * Radius R (world units):  0.7 / uZoom
-   *   – zoom > 1 means the shader "zooms in" → it reads from a smaller
-   *     source patch, so the wedge shrinks accordingly.
-   *   – zoom < 1 → wedge grows beyond camera extent (clamped to 0.7).
+   * Recomputes mandala guides from live uniforms.
    */
-  _updateKaleidoWedge() {
-    const w = this._wedge;
+  _updateMandalaGuides() {
+    const mg = this._mandalaGuides;
     const ku = this._ku;
 
-    const sectors     = Math.max(2, ku.uSectors.value);
-    const zoom        = Math.max(0.05, ku.uZoom.value);
-    const sectorAngle = (2 * Math.PI) / sectors;
-    const halfAngle   = sectorAngle * 0.5;
+    const sectors = Math.max(2, Math.round(ku.uSectors.value));
+    const isMirror = ku.uMirror.value > 0.5;
+    const sectorAngle = (Math.PI * 2) / sectors;
+    const R = 0.65;
 
-    // The source wedge in FBO-space is ALWAYS at [0, sectorAngle].
-    // uRotation rotates the SCREEN mapping, not the FBO sampling region —
-    // so the wedge must NOT follow uRotation.
-    const startAngle = 0;
-
-    // Max world radius the FBO can supply = 0.7 (strokeCamera half-extent).
-    // With zoom applied: zoom > 1 → shader reads smaller source patch → R shrinks.
-    const R = Math.min(0.7, 0.7 / zoom);
-
-    const STEPS = w._arcSteps;
-
-    // ── Fill fan ──────────────────────────────────────────────
-    const fp = w.fill.geometry.attributes.position.array;
-    fp[0] = 0; fp[1] = 0; fp[2] = 0.03;
+    // 1. Base sector fan (highlight Sector 0)
+    const STEPS = Math.min(30, mg._circleSteps);
+    const fp = mg.fill.geometry.attributes.position.array;
+    fp[0] = 0; fp[1] = 0; fp[2] = 0.02;
     for (let i = 0; i <= STEPS; i++) {
-      const angle = startAngle + (i / STEPS) * sectorAngle;
+      const a = (i / STEPS) * sectorAngle;
       const vi = (i + 1) * 3;
-      fp[vi + 0] = Math.cos(angle) * R;
-      fp[vi + 1] = Math.sin(angle) * R;
-      fp[vi + 2] = 0.03;
+      fp[vi + 0] = Math.cos(a) * R;
+      fp[vi + 1] = Math.sin(a) * R;
+      fp[vi + 2] = 0.02;
     }
-    w.fill.geometry.attributes.position.needsUpdate = true;
+    mg.fill.geometry.setDrawRange(0, (STEPS + 1) * 3);
+    mg.fill.geometry.attributes.position.needsUpdate = true;
 
-    // ── Edge ray 1 (start = angle 0, rightward along +X) ─────
-    const e1 = w.edge1.geometry.attributes.position.array;
-    e1[0] = 0; e1[1] = 0; e1[2] = 0.04;
-    e1[3] = Math.cos(startAngle) * R;
-    e1[4] = Math.sin(startAngle) * R;
-    e1[5] = 0.04;
-    w.edge1.geometry.attributes.position.needsUpdate = true;
+    // 2. Base rays (ray at angle 0 and ray at angle sectorAngle)
+    const bp = mg.baseRays.geometry.attributes.position.array;
+    bp[0] = 0; bp[1] = 0; bp[2] = 0.04;
+    bp[3] = R; bp[4] = 0; bp[5] = 0.04;
+    bp[6] = 0; bp[7] = 0; bp[8] = 0.04;
+    bp[9] = Math.cos(sectorAngle) * R;
+    bp[10] = Math.sin(sectorAngle) * R;
+    bp[11] = 0.04;
+    mg.baseRays.geometry.attributes.position.needsUpdate = true;
 
-    // ── Edge ray 2 (end = sectorAngle) ───────────────────────
-    const e2 = w.edge2.geometry.attributes.position.array;
-    const a2 = startAngle + sectorAngle;
-    e2[0] = 0; e2[1] = 0; e2[2] = 0.04;
-    e2[3] = Math.cos(a2) * R;
-    e2[4] = Math.sin(a2) * R;
-    e2[5] = 0.04;
-    w.edge2.geometry.attributes.position.needsUpdate = true;
-
-    // ── Bisector (mirror fold axis at halfAngle) ──────────────
-    const ab = startAngle + halfAngle;
-    const bs = w.bisector.geometry.attributes.position.array;
-    bs[0] = 0; bs[1] = 0; bs[2] = 0.04;
-    bs[3] = Math.cos(ab) * R;
-    bs[4] = Math.sin(ab) * R;
-    bs[5] = 0.04;
-    w.bisector.geometry.attributes.position.needsUpdate = true;
-
-    // ── Arc ───────────────────────────────────────────────────
-    const ap = w.arc.geometry.attributes.position.array;
-    for (let i = 0; i <= STEPS; i++) {
-      const angle = startAngle + (i / STEPS) * sectorAngle;
-      ap[i * 3 + 0] = Math.cos(angle) * R;
-      ap[i * 3 + 1] = Math.sin(angle) * R;
-      ap[i * 3 + 2] = 0.04;
+    // 3. All sector spokes
+    const sp = mg.spokes.geometry.attributes.position.array;
+    const activeSpokes = Math.min(sectors, mg._maxSpokes);
+    for (let i = 0; i < activeSpokes; i++) {
+      const a = i * sectorAngle;
+      const vi = i * 6;
+      sp[vi + 0] = 0; sp[vi + 1] = 0; sp[vi + 2] = 0.03;
+      sp[vi + 3] = Math.cos(a) * R;
+      sp[vi + 4] = Math.sin(a) * R;
+      sp[vi + 5] = 0.03;
     }
-    w.arc.geometry.attributes.position.needsUpdate = true;
+    mg.spokes.geometry.setDrawRange(0, activeSpokes * 2);
+    mg.spokes.geometry.attributes.position.needsUpdate = true;
 
-    // ── Label: float near the arc midpoint ───────────────────
-    const midAngle = startAngle + halfAngle;
-    const labelR   = Math.min(R * 0.72, 0.62);
-    w.label.position.set(
-      Math.cos(midAngle) * labelR,
-      Math.sin(midAngle) * labelR,
-      0.06
-    );
+    // 4. Mirror bisector rays
+    if (isMirror) {
+      mg.mirrorRays.visible = true;
+      const mp = mg.mirrorRays.geometry.attributes.position.array;
+      for (let i = 0; i < activeSpokes; i++) {
+        const a = (i + 0.5) * sectorAngle;
+        const vi = i * 6;
+        mp[vi + 0] = 0; mp[vi + 1] = 0; mp[vi + 2] = 0.03;
+        mp[vi + 3] = Math.cos(a) * R;
+        mp[vi + 4] = Math.sin(a) * R;
+        mp[vi + 5] = 0.03;
+      }
+      mg.mirrorRays.geometry.setDrawRange(0, activeSpokes * 2);
+      mg.mirrorRays.geometry.attributes.position.needsUpdate = true;
+    } else {
+      mg.mirrorRays.visible = false;
+    }
+
+    // 5. Update label when sector or mirror changes
+    if (sectors !== mg._lastSectors || isMirror !== mg._lastMirror) {
+      mg._lastSectors = sectors;
+      mg._lastMirror = isMirror;
+      const ctx = mg._labelCanvas.getContext('2d');
+      ctx.clearRect(0, 0, 512, 64);
+      ctx.fillStyle = 'rgba(10, 14, 22, 0.75)';
+      ctx.fillRect(0, 0, 512, 64);
+      ctx.fillStyle = '#ffee44';
+      ctx.font = 'bold 20px monospace';
+      const mirrorText = isMirror ? ' • ЗЕРКАЛЬНО (×2)' : ' • БЕЗ ЗЕРКАЛА';
+      ctx.fillText(`✛ МАНДАЛА: ${sectors} СЕКТОРОВ${mirrorText}`, 16, 40);
+      mg._labelTex.needsUpdate = true;
+    }
   }
 
-  // ─────────────────────── main label ──────────────────────
+  // ─────────────────────── top title label ─────────────────
 
   _buildLabel() {
     const canvas = document.createElement('canvas');
@@ -358,19 +377,39 @@ export class BrushDebugOverlay {
 
   // ─────────────────────── public API ──────────────────────
 
+  /**
+   * Set individual ribbon debug visibility (e.g. for soloing a brush).
+   */
+  setRibbonVisible(idx, v) {
+    if (idx < 0 || idx >= this._ribbonVisible.length) return;
+    this._ribbonVisible[idx] = v;
+    if (this.visible) {
+      this._spineLines[idx].visible = v;
+      this._headDots[idx].visible = v;
+      this._arrows[idx].visible = v;
+      this._ghostTrails[idx].forEach(o => { o.visible = v; });
+    }
+  }
+
   setVisible(v) {
     this.visible = v;
-    this._spineLines.forEach(o  => { o.visible = v; });
-    this._headDots.forEach(o    => { o.visible = v; });
-    this._arrows.forEach(o      => { o.visible = v; });
-    this._ghostTrails.forEach(g => g.forEach(o => { o.visible = v; }));
-    this._label.visible             = v;
-    this._wedge.fill.visible        = v;
-    this._wedge.edge1.visible       = v;
-    this._wedge.edge2.visible       = v;
-    this._wedge.bisector.visible    = v;
-    this._wedge.arc.visible         = v;
-    this._wedge.label.visible       = v;
+    this.ribbons.forEach((_, idx) => {
+      const show = v && this._ribbonVisible[idx];
+      this._spineLines[idx].visible = show;
+      this._headDots[idx].visible   = show;
+      this._arrows[idx].visible     = show;
+      this._ghostTrails[idx].forEach(o => { o.visible = show; });
+    });
+
+    this._label.visible = v;
+
+    const mg = this._mandalaGuides;
+    mg.fill.visible     = v;
+    mg.spokes.visible   = v;
+    mg.mirrorRays.visible = v && (this._ku.uMirror.value > 0.5);
+    mg.baseRays.visible = v;
+    mg.ring.visible     = v;
+    mg.label.visible    = v;
   }
 
   toggle() {
@@ -384,11 +423,13 @@ export class BrushDebugOverlay {
   update() {
     if (!this.visible) return;
 
-    // ── Kaleidoscope wedge ──────────────────────────────────
-    this._updateKaleidoWedge();
+    // ── Update mandala symmetry guides ───────────────────────
+    this._updateMandalaGuides();
 
     // ── Per-ribbon overlays ─────────────────────────────────
     this.ribbons.forEach((ribbon, idx) => {
+      if (!this._ribbonVisible[idx]) return;
+
       const spine = ribbon.spine;   // Array<THREE.Vector2>
       const n     = spine.length;
 
@@ -440,17 +481,18 @@ export class BrushDebugOverlay {
   }
 
   dispose() {
+    const mg = this._mandalaGuides;
     const all = [
       ...this._spineLines,
       ...this._headDots,
       ...this._arrows,
       ...this._ghostTrails.flat(),
-      this._wedge.fill,
-      this._wedge.edge1,
-      this._wedge.edge2,
-      this._wedge.bisector,
-      this._wedge.arc,
-      this._wedge.label,
+      mg.fill,
+      mg.spokes,
+      mg.mirrorRays,
+      mg.baseRays,
+      mg.ring,
+      mg.label,
       this._label,
     ];
     all.forEach(o => {

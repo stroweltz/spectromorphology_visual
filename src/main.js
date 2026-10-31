@@ -145,7 +145,13 @@ const params = {
 
 // ── Helper: propagate sector / mirror changes to all ribbon instances ──
 function updateAllInstances() {
-  ribbons.forEach(r => r.updateInstances(params.sectors, params.mirror));
+  ribbons.forEach(r => {
+    r.updateInstances(params.sectors, params.mirror);
+    if (brushDebugMode) {
+      r.mesh.count = 1;
+      if (r.splitMesh.visible) r.splitMesh.count = 1;
+    }
+  });
   // Also keep uniforms in sync for debug overlay reads
   kaleidoscopeMaterial.uniforms.uSectors.value = params.sectors;
   kaleidoscopeMaterial.uniforms.uMirror.value = params.mirror ? 1.0 : 0.0;
@@ -175,6 +181,24 @@ gui.add(debugParams, 'brushDebugMode').name('🖌 Режим кисти (debug)'
     // Restore mandala instances
     updateAllInstances();
   }
+});
+
+const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
+const layerParams = {
+  layer1: true,
+  layer2: true,
+  layer3: true,
+};
+const layerConfigs = [
+  { key: 'layer1', name: 'Кисть 1: Рубин / Янтарь' },
+  { key: 'layer2', name: 'Кисть 2: Бирюза / Изумруд' },
+  { key: 'layer3', name: 'Кисть 3: Фиолет / Коралл' },
+];
+layerConfigs.forEach((cfg, idx) => {
+  fLayers.add(layerParams, cfg.key).name(cfg.name).onChange(v => {
+    ribbons[idx].group.visible = v;
+    brushDebug.setRibbonVisible(idx, v);
+  });
 });
 
 const fKaleido = gui.addFolder('Мандала / Симметрия');
