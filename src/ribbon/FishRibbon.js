@@ -32,6 +32,12 @@ export class FishRibbon {
     this.currentWidth = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase));
     this.baseWidth = this.currentWidth;
 
+    // ── Radial Distance Thickness Limiter (Center Taper) ──
+    // Constrains maximum stroke thickness when ribbon points are close to the origin (0, 0).
+    // Prevents mandala center crowding/clumping and produces delicate filigree lines near the core.
+    this.centerTaperStrength = options.centerTaperStrength ?? 0.85; // 0 = disabled, 1 = tapers to 0 at origin
+    this.centerTaperRadius = options.centerTaperRadius ?? 0.35;     // Distance from origin where tapering begins
+
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
     // Governs max angular velocity: |ω_max| = v / minTurnRadius.
@@ -463,7 +469,17 @@ export class FishRibbon {
 
       // Width envelope: tapered head, thick fleshy body, feather-light tail
       const widthProfile = Math.sin(Math.pow(s, 0.72) * Math.PI);
-      const halfWidth = (this.currentWidth * widthScale * 0.5) * Math.max(0.02, widthProfile);
+
+      // Radial distance limiter: stroke thins down gracefully near the mandala center (0, 0)
+      let radialFactor = 1.0;
+      if (this.centerTaperStrength > 0.001) {
+        const r = c.length();
+        const normR = Math.min(1.0, r / Math.max(0.001, this.centerTaperRadius));
+        const smoothR = normR * normR * (3.0 - 2.0 * normR); // Cubic Hermite smoothstep [0, 1]
+        radialFactor = 1.0 - this.centerTaperStrength * (1.0 - smoothR);
+      }
+
+      const halfWidth = (this.currentWidth * widthScale * 0.5) * Math.max(0.02, widthProfile) * radialFactor;
 
       // Left / right vertices along true normal
       this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);

@@ -155,6 +155,8 @@ const params = {
   roughness: 0.35,
   fiberIntensity: 0.28,
   widthSpeed: 0.22,
+  centerTaperStrength: 0.85,
+  centerTaperRadius: 0.35,
 
   // Background
   bgGradient: true,
@@ -277,6 +279,12 @@ fPaper.add(params, 'fiberIntensity', 0.0, 0.8, 0.02).name('Волокна цел
 });
 fPaper.add(params, 'widthSpeed', 0.0, 0.8, 0.005).name('Скорость изм. толщины').onChange(v => {
   ribbons.forEach(r => r.widthSpeed = v);
+});
+fPaper.add(params, 'centerTaperStrength', 0.0, 1.0, 0.02).name('Сужение к центру').onChange(v => {
+  ribbons.forEach(r => r.centerTaperStrength = v);
+});
+fPaper.add(params, 'centerTaperRadius', 0.1, 0.6, 0.01).name('Радиус сужения').onChange(v => {
+  ribbons.forEach(r => r.centerTaperRadius = v);
 });
 
 const fBg = gui.addFolder('Фон и оптика');
