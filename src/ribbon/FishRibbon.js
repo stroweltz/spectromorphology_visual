@@ -20,7 +20,7 @@ export class FishRibbon {
     this.speed = options.speed || 1.2;
     this.waveFreq = options.waveFreq || 4.5;
     this.waveAmp = options.waveAmp || 0.07;
-    this.pathRadius = options.pathRadius || 0.32;
+    this.pathRadius = options.pathRadius || 0.42;
     this.phaseOffset = options.phaseOffset || 0.0;
     this.orbitSpeed = options.orbitSpeed || 0.4;
     this.splitIntensity = options.splitIntensity || 0.0; // 0 = single ribbon, >0 = bifurcated split
@@ -34,13 +34,13 @@ export class FishRibbon {
     // The brush head is an autonomous self-steering body with forward velocity v,
     // continuous heading angle θ, and strictly bounded angular velocity ω.
     this.headPos = new THREE.Vector2(
-      Math.cos(this.phaseOffset) * (this.pathRadius || 0.32),
-      Math.sin(this.phaseOffset) * (this.pathRadius || 0.32)
+      Math.cos(this.phaseOffset) * (this.pathRadius || 0.42),
+      Math.sin(this.phaseOffset) * (this.pathRadius || 0.42)
     );
     // Initial heading: tangent to circular orbit (counter-clockwise)
     this.headingAngle = this.phaseOffset + Math.PI * 0.5;
     this.angularVelocity = 0.0;
-    this.maxBoundaryRadius = 0.44; // Soft perimeter boundary of the mandala field
+    this.maxBoundaryRadius = options.maxBoundaryRadius ?? 0.58; // Soft perimeter boundary of the mandala field
 
     // Audio reactivity / external modulation hooks (for future sound driver)
     this.audioSpeedMult = 1.0;
@@ -187,7 +187,7 @@ export class FishRibbon {
    * Resets the brush head to its initial orbit position and straightens the spine.
    */
   reset() {
-    const initR = this.pathRadius || 0.32;
+    const initR = this.pathRadius || 0.42;
     this.headPos.set(
       Math.cos(this.phaseOffset) * initR,
       Math.sin(this.phaseOffset) * initR
@@ -239,13 +239,13 @@ export class FishRibbon {
 
     // 3. Soft centripetal boundary steering (keeps the brush gracefully within the mandala field)
     const r = this.headPos.length();
-    const rInner = 0.22;
     const rOuter = this.maxBoundaryRadius;
+    const rInner = rOuter * 0.70; // Outer 30% acts as a soft steering return buffer zone
     let boundarySteer = 0.0;
     let boundaryPush = 0.0;
 
     if (r > rInner) {
-      boundaryPush = Math.min(1.0, (r - rInner) / Math.max(0.01, rOuter - rInner));
+      boundaryPush = Math.min(1.5, (r - rInner) / Math.max(0.01, rOuter - rInner));
       // Angle pointing back toward the origin (0, 0)
       const toCenterAngle = Math.atan2(-this.headPos.y, -this.headPos.x);
       // Angular difference between heading and center
@@ -254,12 +254,13 @@ export class FishRibbon {
       angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
 
       // Steer toward center with increasing urgency as radius grows
-      boundarySteer = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 3.0) * boundaryPush * 3.2;
+      boundarySteer = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 3.0) * boundaryPush * 3.5;
     }
 
     // Combine wander and boundary return (boundary takes priority near the rim)
+    const wanderWeight = Math.max(0.0, 1.0 - boundaryPush * 0.8);
     let desiredOmega =
-      wander * (1.0 - boundaryPush * 0.75) * this.audioSteerMult +
+      wander * wanderWeight * this.audioSteerMult +
       boundarySteer +
       this.audioExtraAngular;
 
@@ -285,10 +286,11 @@ export class FishRibbon {
     this.headPos.x += Math.cos(this.headingAngle) * v * clampedDt;
     this.headPos.y += Math.sin(this.headingAngle) * v * clampedDt;
 
-    // Failsafe perimeter guard (soft bounce/containment if extreme speed)
+    // Failsafe perimeter guard: ensure brush head stays safely within FBO boundaries
+    const maxHardLimit = Math.min(0.65, rOuter + 0.05);
     const curR = this.headPos.length();
-    if (curR > rOuter + 0.04) {
-      this.headPos.multiplyScalar((rOuter + 0.04) / curR);
+    if (curR > maxHardLimit) {
+      this.headPos.multiplyScalar(maxHardLimit / curR);
     }
 
     return this.headPos;

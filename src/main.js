@@ -33,7 +33,7 @@ strokeCamera.position.z = 1;
 // 3. Multi-layered Saturated Paper Ribbons
 // ── Thinner defaults for mandala mode (many instanced copies) ──
 const ribbons = [
-  // Layer 1: Crimson / Ruby with Amber split
+  // Layer 1: Crimson / Ruby with Amber split (mid-outer territory)
   new FishRibbon({
     color: 0xef2353,
     splitColor: 0xffaa00,
@@ -42,12 +42,13 @@ const ribbons = [
     speed: 1.1,
     waveFreq: 4.2,
     waveAmp: 0.065,
-    pathRadius: 0.35,
+    pathRadius: 0.42,
     phaseOffset: 0.0,
     orbitSpeed: 0.35,
-    splitIntensity: 0.85
+    splitIntensity: 0.85,
+    maxBoundaryRadius: 0.58
   }),
-  // Layer 2: Deep Cyan / Electric Teal with Emerald split
+  // Layer 2: Deep Cyan / Electric Teal with Emerald split (wide outer sweep)
   new FishRibbon({
     color: 0x00d2d3,
     splitColor: 0x10ac84,
@@ -56,12 +57,13 @@ const ribbons = [
     speed: 1.25,
     waveFreq: 4.8,
     waveAmp: 0.06,
-    pathRadius: 0.28,
+    pathRadius: 0.52,
     phaseOffset: Math.PI * 0.66,
     orbitSpeed: 0.42,
-    splitIntensity: 0.9
+    splitIntensity: 0.9,
+    maxBoundaryRadius: 0.58
   }),
-  // Layer 3: Royal Violet / Magenta with Coral split
+  // Layer 3: Royal Violet / Magenta with Coral split (inner-mid core territory)
   new FishRibbon({
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
@@ -70,10 +72,11 @@ const ribbons = [
     speed: 0.95,
     waveFreq: 3.8,
     waveAmp: 0.07,
-    pathRadius: 0.38,
+    pathRadius: 0.30,
     phaseOffset: Math.PI * 1.33,
     orbitSpeed: 0.3,
-    splitIntensity: 0.8
+    splitIntensity: 0.8,
+    maxBoundaryRadius: 0.58
   })
 ];
 
@@ -128,6 +131,7 @@ const params = {
   // Fish Motion & Kinematics
   motionSpeed: 1.1,
   orbitSpeed: 0.35,
+  boundaryRadius: 0.58,
   minTurnRadius: 0.12,
   waveAmplitude: 0.065,
   waveFrequency: 4.2,
@@ -227,6 +231,9 @@ fFish.add(params, 'motionSpeed', 0.2, 3.0, 0.1).name('Скорость плав�
 });
 fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кисти (орбита)').onChange(v => {
   ribbons.forEach(r => r.orbitSpeed = v);
+});
+fFish.add(params, 'boundaryRadius', 0.25, 0.62, 0.01).name('Радиус обитания').onChange(v => {
+  ribbons.forEach(r => r.maxBoundaryRadius = v);
 });
 fFish.add(params, 'minTurnRadius', 0.0, 0.4, 0.01).name('Мин. радиус поворота').onChange(v => {
   ribbons.forEach(r => r.minTurnRadius = v);
