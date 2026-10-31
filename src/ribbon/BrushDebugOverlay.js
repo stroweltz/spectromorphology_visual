@@ -42,7 +42,6 @@ export class BrushDebugOverlay {
     this._arrows         = this._buildArrows();
     this._ghostTrails    = this._buildGhostTrails();
     this._mandalaGuides  = this._buildMandalaGuides();
-    this._label          = this._buildLabel();
 
     // Add all to scene (initially hidden)
     this._spineLines.forEach(o  => scene.add(o));
@@ -57,8 +56,6 @@ export class BrushDebugOverlay {
     scene.add(mg.baseRays);
     scene.add(mg.ring);
     scene.add(mg.label);
-
-    scene.add(this._label);
 
     this.setVisible(false);
   }
@@ -353,28 +350,6 @@ export class BrushDebugOverlay {
     }
   }
 
-  // ─────────────────────── top title label ─────────────────
-
-  _buildLabel() {
-    const canvas = document.createElement('canvas');
-    canvas.width  = 512;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 0, 512, 64);
-    ctx.font = 'bold 22px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('🖌  РЕЖИМ КИСТИ  |  SPINE  •  HEAD  →  TRAIL', 12, 40);
-
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(0.7, 0.09, 1);
-    sprite.position.set(-0.35, 0.63, 0.5);
-    sprite.renderOrder = 30;
-    return sprite;
-  }
-
   // ─────────────────────── public API ──────────────────────
 
   /**
@@ -401,15 +376,13 @@ export class BrushDebugOverlay {
       this._ghostTrails[idx].forEach(o => { o.visible = show; });
     });
 
-    this._label.visible = v;
-
     const mg = this._mandalaGuides;
-    mg.fill.visible     = v;
-    mg.spokes.visible   = v;
+    mg.fill.visible       = v;
+    mg.spokes.visible     = v;
     mg.mirrorRays.visible = v && (this._ku.uMirror.value > 0.5);
-    mg.baseRays.visible = v;
-    mg.ring.visible     = v;
-    mg.label.visible    = v;
+    mg.baseRays.visible   = v;
+    mg.ring.visible       = v;
+    mg.label.visible      = v;
   }
 
   toggle() {
@@ -493,7 +466,6 @@ export class BrushDebugOverlay {
       mg.baseRays,
       mg.ring,
       mg.label,
-      this._label,
     ];
     all.forEach(o => {
       this.scene.remove(o);

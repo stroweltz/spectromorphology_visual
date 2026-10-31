@@ -171,6 +171,11 @@ gui.add(debugParams, 'brushDebugMode').name('🖌 Режим кисти (debug)'
   brushDebug.setVisible(v);
   debugBgMesh.visible = v;
 
+  const hudDebug = document.getElementById('hud-debug');
+  const hudSub = document.getElementById('hud-subtitle');
+  if (hudDebug) hudDebug.style.display = v ? 'inline-block' : 'none';
+  if (hudSub) hudSub.textContent = v ? 'Исходная траектория кисти · Без симметрий' : 'Мандала бумажных мазков · Рыбья кинематика';
+
   if (v) {
     // Show only the original (non-instanced) ribbon in debug mode
     ribbons.forEach(r => {
