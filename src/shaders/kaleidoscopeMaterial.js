@@ -9,6 +9,7 @@ export function createKaleidoscopeMaterial() {
       uZoom: { value: 1.0 },
       uCenter: { value: new THREE.Vector2(0.5, 0.5) },
       uSampleCenter: { value: new THREE.Vector2(0.5, 0.5) },
+      uStrokeScale: { value: 0.35 },       // maps screen space to expanded FBO UV
       uMirror: { value: 1.0 },             // kept for GUI reads
       uBgType: { value: 1.0 },              // 0: pure black, 1: dark radial gradient
       uBgInner: { value: new THREE.Color(0x0c0f17) }, // deep midnight indigo
@@ -33,6 +34,7 @@ export function createKaleidoscopeMaterial() {
       uniform float uZoom;
       uniform vec2 uCenter;
       uniform vec2 uSampleCenter;
+      uniform float uStrokeScale;
       uniform float uBgType;
       uniform vec3 uBgInner;
       uniform vec3 uBgOuter;
@@ -63,10 +65,10 @@ export function createKaleidoscopeMaterial() {
         // Zoom (> 1 zooms in, < 1 zooms out)
         p *= uZoom;
 
-        // Map directly to FBO UV.
-        // p is in aspect-correct space; the FBO is square so sampleUV = p + centre
-        // works correctly — the mandala fills the screen height, sides show background.
-        vec2 sampleUV = p + uSampleCenter;
+        // Map to expanded FBO UV coordinates.
+        // uStrokeScale scales the sampling so that the square FBO rectangle
+        // lies safely beyond all screen corners, leaving empty corners without any visible rectangle.
+        vec2 sampleUV = p * uStrokeScale + uSampleCenter;
 
         // Sample stroke buffer
         vec4 stroke = texture2D(tDiffuse, sampleUV);

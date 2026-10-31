@@ -17,7 +17,7 @@ container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
 // Higher resolution for sharp paper fiber edges and deckled cuts
-const FBO_SIZE = 2048;
+const FBO_SIZE = 2560;
 const strokeRenderTarget = new THREE.WebGLRenderTarget(FBO_SIZE, FBO_SIZE, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
@@ -26,8 +26,16 @@ const strokeRenderTarget = new THREE.WebGLRenderTarget(FBO_SIZE, FBO_SIZE, {
 });
 
 const strokeScene = new THREE.Scene();
-// Orthographic camera covering -0.7 to +0.7 space
-const strokeCamera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.1, 10);
+
+// Aspect and corner reach for screen: ensure square FBO rectangle is safely outside all screen corners
+const initAspect = width / height;
+const initRCorner = 0.5 * Math.sqrt(initAspect * initAspect + 1.0);
+const initStrokeExtent = Math.max(2.2, initRCorner * 2.0);
+
+// Orthographic camera covering expanded space so bounding box is completely off-screen
+const strokeCamera = new THREE.OrthographicCamera(
+  -initStrokeExtent, initStrokeExtent, initStrokeExtent, -initStrokeExtent, 0.1, 10
+);
 strokeCamera.position.z = 1;
 
 // 3. Multi-layered Saturated Paper Ribbons
@@ -93,6 +101,7 @@ const mainCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const kaleidoscopeMaterial = createKaleidoscopeMaterial();
 kaleidoscopeMaterial.uniforms.tDiffuse.value = strokeRenderTarget.texture;
 kaleidoscopeMaterial.uniforms.uAspect.value = width / height;
+kaleidoscopeMaterial.uniforms.uStrokeScale.value = 0.7 / initStrokeExtent;
 
 const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), kaleidoscopeMaterial);
 mainScene.add(quad);
@@ -110,7 +119,6 @@ debugBgMesh.visible    = false;
 strokeScene.add(debugBgMesh);
 
 // Camera for debug view: renders strokeScene directly to screen with aspect correction
-const initAspect = width / height;
 const debugCamera = new THREE.OrthographicCamera(-0.7 * initAspect, 0.7 * initAspect, 0.7, -0.7, 0.1, 10);
 debugCamera.position.z = 1;
 debugBgMesh.scale.set(initAspect * 2.0, 2.0, 1);
@@ -286,6 +294,18 @@ function handleResize() {
   const aspect = w / h;
   renderer.setSize(w, h);
   kaleidoscopeMaterial.uniforms.uAspect.value = aspect;
+
+  // Dynamically update strokeExtent and scale so FBO edges stay safely outside screen corners
+  const rCorner = 0.5 * Math.sqrt(aspect * aspect + 1.0);
+  const strokeExtent = Math.max(2.2, rCorner * 2.0);
+
+  strokeCamera.left = -strokeExtent;
+  strokeCamera.right = strokeExtent;
+  strokeCamera.top = strokeExtent;
+  strokeCamera.bottom = -strokeExtent;
+  strokeCamera.updateProjectionMatrix();
+
+  kaleidoscopeMaterial.uniforms.uStrokeScale.value = 0.7 / strokeExtent;
 
   debugCamera.left = -0.7 * aspect;
   debugCamera.right = 0.7 * aspect;
