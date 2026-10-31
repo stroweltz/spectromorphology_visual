@@ -5,6 +5,7 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
     transparent: true,
     depthWrite: false,
     depthTest: false,
+    side: THREE.DoubleSide, // needed for mirrored instances (scale -1)
     uniforms: {
       uColor: { value: new THREE.Color(colorHex) },
       uOpacity: { value: 0.92 },
@@ -19,7 +20,16 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       void main() {
         vUv = uv;
         vPosition = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+        vec4 transformed = vec4(position, 1.0);
+
+        // InstancedMesh support: Three.js defines USE_INSTANCING
+        // and provides instanceMatrix when material is on an InstancedMesh
+        #ifdef USE_INSTANCING
+          transformed = instanceMatrix * transformed;
+        #endif
+
+        gl_Position = projectionMatrix * modelViewMatrix * transformed;
       }
     `,
     fragmentShader: /* glsl */ `

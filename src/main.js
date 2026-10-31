@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { FishRibbon } from './ribbon/FishRibbon.js';
 import { createKaleidoscopeMaterial } from './shaders/kaleidoscopeMaterial.js';
+import { BrushDebugOverlay } from './ribbon/BrushDebugOverlay.js';
 
 // --- Global Setup ---
 const container = document.getElementById('canvas-container');
@@ -30,13 +31,14 @@ const strokeCamera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.1, 10)
 strokeCamera.position.z = 1;
 
 // 3. Multi-layered Saturated Paper Ribbons
+// ── Thinner defaults for mandala mode (many instanced copies) ──
 const ribbons = [
   // Layer 1: Crimson / Ruby with Amber split
   new FishRibbon({
     color: 0xef2353,
     splitColor: 0xffaa00,
     segments: 70,
-    baseWidth: 0.13,
+    baseWidth: 0.045,
     speed: 1.1,
     waveFreq: 4.2,
     waveAmp: 0.065,
@@ -50,7 +52,7 @@ const ribbons = [
     color: 0x00d2d3,
     splitColor: 0x10ac84,
     segments: 70,
-    baseWidth: 0.11,
+    baseWidth: 0.035,
     speed: 1.25,
     waveFreq: 4.8,
     waveAmp: 0.06,
@@ -64,7 +66,7 @@ const ribbons = [
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
     segments: 70,
-    baseWidth: 0.12,
+    baseWidth: 0.04,
     speed: 0.95,
     waveFreq: 3.8,
     waveAmp: 0.07,
@@ -92,9 +94,28 @@ kaleidoscopeMaterial.uniforms.uAspect.value = width / height;
 const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), kaleidoscopeMaterial);
 mainScene.add(quad);
 
-// 5. Interactive GUI Controls
+// 5. Brush Debug Overlay
+// Pass live kaleidoscope uniforms so the wedge stays in sync with GUI changes
+const brushDebug = new BrushDebugOverlay(strokeScene, ribbons, kaleidoscopeMaterial.uniforms);
+
+// Background plane for the debug view (so strokes aren't transparent over void)
+const debugBgGeom = new THREE.PlaneGeometry(1.4, 1.4);
+const debugBgMat  = new THREE.MeshBasicMaterial({ color: 0x0a0c14, transparent: false });
+const debugBgMesh = new THREE.Mesh(debugBgGeom, debugBgMat);
+debugBgMesh.position.z = -0.5;
+debugBgMesh.visible    = false;
+strokeScene.add(debugBgMesh);
+
+// Camera for debug view: renders strokeScene directly to screen, same frustum
+const debugCamera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.1, 10);
+debugCamera.position.z = 1;
+
+// State flag
+let brushDebugMode = false;
+
+// 6. Interactive GUI Controls
 const params = {
-  // Kaleidoscope
+  // Kaleidoscope / Mandala
   sectors: 12,
   mirror: true,
   autoRotate: true,
@@ -104,6 +125,7 @@ const params = {
 
   // Fish Motion & Kinematics
   motionSpeed: 1.1,
+  orbitSpeed: 0.35,
   waveAmplitude: 0.065,
   waveFrequency: 4.2,
   splitting: 0.85,
@@ -111,7 +133,7 @@ const params = {
   // Paper Texture
   roughness: 0.35,
   fiberIntensity: 0.28,
-  ribbonWidth: 0.12,
+  ribbonWidth: 0.04,
 
   // Background
   bgGradient: true,
@@ -120,14 +142,35 @@ const params = {
   vignette: 0.75
 };
 
+// ── Helper: propagate sector / mirror changes to all ribbon instances ──
+function updateAllInstances() {
+  ribbons.forEach(r => r.updateInstances(params.sectors, params.mirror));
+  // Also keep uniforms in sync for debug overlay reads
+  kaleidoscopeMaterial.uniforms.uSectors.value = params.sectors;
+  kaleidoscopeMaterial.uniforms.uMirror.value = params.mirror ? 1.0 : 0.0;
+}
+
+// Initial instance setup (must happen before first frame)
+updateAllInstances();
+
 const gui = new GUI({ title: 'Параметры Визуализатора' });
 
-const fKaleido = gui.addFolder('Калейдоскопическая призма');
+// ── Debug brush mode button ─────────────────────────────
+const debugParams = {
+  brushDebugMode: false,
+};
+gui.add(debugParams, 'brushDebugMode').name('🖌 Режим кисти (debug)').onChange(v => {
+  brushDebugMode = v;
+  brushDebug.setVisible(v);
+  debugBgMesh.visible = v;
+});
+
+const fKaleido = gui.addFolder('Мандала / Симметрия');
 fKaleido.add(params, 'sectors', 2, 32, 1).name('Секторы симметрии').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uSectors.value = v;
+  updateAllInstances();
 });
 fKaleido.add(params, 'mirror').name('Зеркальные грани').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uMirror.value = v ? 1.0 : 0.0;
+  updateAllInstances();
 });
 fKaleido.add(params, 'autoRotate').name('Авто-вращение');
 fKaleido.add(params, 'rotationSpeed', -1.0, 1.0, 0.01).name('Скорость вращения');
@@ -138,6 +181,9 @@ fKaleido.add(params, 'zoom', 0.4, 2.5, 0.05).name('Масштаб (Zoom)').onCha
 const fFish = gui.addFolder('Рыбья кинематика');
 fFish.add(params, 'motionSpeed', 0.2, 3.0, 0.1).name('Скорость плавания').onChange(v => {
   ribbons.forEach(r => r.speed = v);
+});
+fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кисти (орбита)').onChange(v => {
+  ribbons.forEach(r => r.orbitSpeed = v);
 });
 fFish.add(params, 'waveAmplitude', 0.01, 0.15, 0.005).name('Размах волны (Амплитуда)').onChange(v => {
   ribbons.forEach(r => r.waveAmp = v);
@@ -162,7 +208,7 @@ fPaper.add(params, 'fiberIntensity', 0.0, 0.8, 0.02).name('Волокна цел
     r.splitMaterial.uniforms.uFiberIntensity.value = v;
   });
 });
-fPaper.add(params, 'ribbonWidth', 0.04, 0.25, 0.01).name('Толщина мазка').onChange(v => {
+fPaper.add(params, 'ribbonWidth', 0.01, 0.15, 0.005).name('Толщина мазка').onChange(v => {
   ribbons.forEach(r => r.baseWidth = v);
 });
 
@@ -203,22 +249,33 @@ function animate() {
     ribbon.update(elapsedTime, delta);
   });
 
+  // 1b. Update debug overlay (reads updated spine data)
+  brushDebug.update();
+
   // 2. Render Strokes into Offscreen FBO
   renderer.setRenderTarget(strokeRenderTarget);
   renderer.setClearColor(0x000000, 0.0); // Transparent background for strokes
   renderer.clear();
   renderer.render(strokeScene, strokeCamera);
 
-  // 3. Render Kaleidoscope Pass to Screen
+  // 3. Render to Screen
   renderer.setRenderTarget(null);
 
-  if (params.autoRotate) {
-    currentRotation += delta * params.rotationSpeed;
-  }
-  kaleidoscopeMaterial.uniforms.uRotation.value = currentRotation;
-  kaleidoscopeMaterial.uniforms.uTime.value = elapsedTime;
+  if (brushDebugMode) {
+    // ── Debug mode: render strokeScene directly, full screen ──
+    renderer.setClearColor(0x0a0c14, 1.0);
+    renderer.clear();
+    renderer.render(strokeScene, debugCamera);
+  } else {
+    // ── Normal mode: mandala display pass ─────────────────────
+    if (params.autoRotate) {
+      currentRotation += delta * params.rotationSpeed;
+    }
+    kaleidoscopeMaterial.uniforms.uRotation.value = currentRotation;
+    kaleidoscopeMaterial.uniforms.uTime.value = elapsedTime;
 
-  renderer.render(mainScene, mainCamera);
+    renderer.render(mainScene, mainCamera);
+  }
 }
 
 animate();

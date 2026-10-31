@@ -50,19 +50,81 @@ export class FishRibbon {
     this._tmpRight    = new THREE.Vector2();
     this._tmpHead     = new THREE.Vector2();
 
-    // Build Main BufferGeometry
-    this.geometry = this._createRibbonGeometry(this.segments);
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // ── Max instances for mandala sectors × 2 (mirror) ──
+    this._maxInstances = 64;
+    this._instanceCount = 1;
 
-    // Build Split Branch BufferGeometry
+    // Build Main InstancedMesh (replaces plain Mesh)
+    this.geometry = this._createRibbonGeometry(this.segments);
+    this.mesh = new THREE.InstancedMesh(this.geometry, this.material, this._maxInstances);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 1;
+    this.mesh.frustumCulled = false;
+
+    // Build Split Branch InstancedMesh
     this.splitGeometry = this._createRibbonGeometry(this.segments);
-    this.splitMesh = new THREE.Mesh(this.splitGeometry, this.splitMaterial);
+    this.splitMesh = new THREE.InstancedMesh(this.splitGeometry, this.splitMaterial, this._maxInstances);
+    this.splitMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.splitMesh.count = 0;
+    this.splitMesh.frustumCulled = false;
     this.splitMesh.visible = false;
+
+    // Set identity matrix for the initial single instance
+    const dummy = new THREE.Object3D();
+    dummy.updateMatrix();
+    this.mesh.setMatrixAt(0, dummy.matrix);
+    this.splitMesh.setMatrixAt(0, dummy.matrix);
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.splitMesh.instanceMatrix.needsUpdate = true;
 
     // Group containing both main and split branches
     this.group = new THREE.Group();
     this.group.add(this.mesh);
     this.group.add(this.splitMesh);
+  }
+
+  /**
+   * Rebuild instance matrices for mandala-style symmetry.
+   *
+   * Each ribbon is rendered `sectors` times (optionally × 2 with mirror),
+   * each rotated by 2π/N × i around the origin.
+   *
+   * @param {number}  sectors – number of rotational copies (2–32)
+   * @param {boolean} mirror  – add a Y-reflected set for bilateral symmetry
+   */
+  updateInstances(sectors, mirror) {
+    const sectorAngle = (Math.PI * 2) / Math.max(2, sectors);
+    const dummy = new THREE.Object3D();
+    let idx = 0;
+
+    // Non-mirrored rotational copies
+    for (let i = 0; i < sectors; i++) {
+      dummy.position.set(0, 0, 0);
+      dummy.rotation.set(0, 0, sectorAngle * i);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      this.mesh.setMatrixAt(idx, dummy.matrix);
+      this.splitMesh.setMatrixAt(idx, dummy.matrix);
+      idx++;
+    }
+
+    // Mirrored copies: reflect across X-axis (scale Y by -1), then rotate
+    if (mirror) {
+      for (let i = 0; i < sectors; i++) {
+        dummy.position.set(0, 0, 0);
+        dummy.rotation.set(0, 0, sectorAngle * i);
+        dummy.scale.set(1, -1, 1);
+        dummy.updateMatrix();
+        this.mesh.setMatrixAt(idx, dummy.matrix);
+        this.splitMesh.setMatrixAt(idx, dummy.matrix);
+        idx++;
+      }
+    }
+
+    this.mesh.count = idx;
+    this._instanceCount = idx;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.splitMesh.instanceMatrix.needsUpdate = true;
   }
 
   _createRibbonGeometry(segments) {
@@ -151,6 +213,7 @@ export class FishRibbon {
 
     if (effectiveSplit > 0.05) {
       this.splitMesh.visible = true;
+      this.splitMesh.count = this._instanceCount;
       this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(effectiveSplit * 1.5, 0.0, 0.95);
       
       // Update Split Branch: diverges opposite to the main branch
