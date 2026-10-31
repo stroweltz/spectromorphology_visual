@@ -16,7 +16,6 @@ export class FishRibbon {
    */
   constructor(options = {}) {
     this.segments = options.segments || 64;
-    this.baseWidth = options.baseWidth || 0.14;
     this.speed = options.speed || 1.2;
     this.waveFreq = options.waveFreq || 4.5;
     this.waveAmp = options.waveAmp || 0.07;
@@ -24,6 +23,14 @@ export class FishRibbon {
     this.phaseOffset = options.phaseOffset || 0.0;
     this.orbitSpeed = options.orbitSpeed || 0.4;
     this.splitIntensity = options.splitIntensity || 0.0; // 0 = single ribbon, >0 = bifurcated split
+
+    // ── Dynamic Stroke Thickness Modulation ──
+    // Smoothly breathes between 0.0 and 0.08 over time
+    this.maxWidth = options.maxWidth ?? 0.08;
+    this.widthSpeed = options.widthSpeed ?? 0.22;
+    this.widthPhase = options.widthPhase ?? (this.phaseOffset + Math.PI * 0.5);
+    this.currentWidth = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase));
+    this.baseWidth = this.currentWidth;
 
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
@@ -195,6 +202,9 @@ export class FishRibbon {
     this.headingAngle = this.phaseOffset + Math.PI * 0.5;
     this.angularVelocity = 0.0;
     this.wavePhase = this.phaseOffset;
+    this.widthPhase = this.phaseOffset + Math.PI * 0.5;
+    this.currentWidth = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase));
+    this.baseWidth = this.currentWidth;
 
     const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
     const initSegDist = 0.018 * (this.speed / 1.0);
@@ -329,6 +339,13 @@ export class FishRibbon {
     this.material.uniforms.uTime.value = time;
     this.splitMaterial.uniforms.uTime.value = time;
 
+    // 0. Dynamic stroke thickness modulation (smooth breathing between 0.0 and 0.08)
+    const clampedDelta = Math.min(Math.max(delta || 0.016, 0.001), 0.05);
+    this.widthPhase += this.widthSpeed * clampedDelta;
+    const widthCycle = 0.5 - 0.5 * Math.cos(this.widthPhase);
+    this.currentWidth = this.maxWidth * widthCycle;
+    this.baseWidth = this.currentWidth;
+
     // 1. Calculate leading head via autonomous steering kinematics
     const head = this._updateHeadAgent(time, delta);
     this.spine[0].copy(head);
@@ -446,7 +463,7 @@ export class FishRibbon {
 
       // Width envelope: tapered head, thick fleshy body, feather-light tail
       const widthProfile = Math.sin(Math.pow(s, 0.72) * Math.PI);
-      const halfWidth = (this.baseWidth * widthScale * 0.5) * Math.max(0.04, widthProfile);
+      const halfWidth = (this.currentWidth * widthScale * 0.5) * Math.max(0.02, widthProfile);
 
       // Left / right vertices along true normal
       this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);

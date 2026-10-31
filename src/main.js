@@ -39,14 +39,16 @@ const strokeCamera = new THREE.OrthographicCamera(
 strokeCamera.position.z = 1;
 
 // 3. Multi-layered Saturated Paper Ribbons
-// ── Thinner defaults for mandala mode (many instanced copies) ──
+// ── Dynamic width modulation (0 to 0.08) with polyphonic layer phase offsets ──
 const ribbons = [
   // Layer 1: Crimson / Ruby with Amber split (mid-outer territory)
   new FishRibbon({
     color: 0xef2353,
     splitColor: 0xffaa00,
     segments: 70,
-    baseWidth: 0.045,
+    maxWidth: 0.08,
+    widthSpeed: 0.22,
+    widthPhase: 0.5 * Math.PI,
     speed: 1.1,
     waveFreq: 4.2,
     waveAmp: 0.065,
@@ -61,7 +63,9 @@ const ribbons = [
     color: 0x00d2d3,
     splitColor: 0x10ac84,
     segments: 70,
-    baseWidth: 0.035,
+    maxWidth: 0.08,
+    widthSpeed: 0.22,
+    widthPhase: 0.5 * Math.PI + Math.PI * 0.66,
     speed: 1.25,
     waveFreq: 4.8,
     waveAmp: 0.06,
@@ -76,7 +80,9 @@ const ribbons = [
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
     segments: 70,
-    baseWidth: 0.04,
+    maxWidth: 0.08,
+    widthSpeed: 0.22,
+    widthPhase: 0.5 * Math.PI + Math.PI * 1.33,
     speed: 0.95,
     waveFreq: 3.8,
     waveAmp: 0.07,
@@ -145,10 +151,10 @@ const params = {
   waveFrequency: 4.2,
   splitting: 0.85,
 
-  // Paper Texture
+  // Paper Texture & Width Dynamics
   roughness: 0.35,
   fiberIntensity: 0.28,
-  ribbonWidth: 0.04,
+  widthSpeed: 0.22,
 
   // Background
   bgGradient: true,
@@ -269,8 +275,8 @@ fPaper.add(params, 'fiberIntensity', 0.0, 0.8, 0.02).name('Волокна цел
     r.splitMaterial.uniforms.uFiberIntensity.value = v;
   });
 });
-fPaper.add(params, 'ribbonWidth', 0.01, 0.15, 0.005).name('Толщина мазка').onChange(v => {
-  ribbons.forEach(r => r.baseWidth = v);
+fPaper.add(params, 'widthSpeed', 0.0, 0.8, 0.005).name('Скорость изм. толщины').onChange(v => {
+  ribbons.forEach(r => r.widthSpeed = v);
 });
 
 const fBg = gui.addFolder('Фон и оптика');
