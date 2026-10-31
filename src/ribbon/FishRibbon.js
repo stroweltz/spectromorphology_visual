@@ -289,7 +289,7 @@ export class FishRibbon {
 
     if (effectiveSplit > 0.05) {
       this.splitMesh.visible = true;
-      this.splitMesh.count = this._instanceCount;
+      this.splitMesh.count = this.mesh.count; // match main mesh (respects debug mode override)
       this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(effectiveSplit * 1.5, 0.0, 0.95);
       
       // Update Split Branch: diverges opposite to the main branch

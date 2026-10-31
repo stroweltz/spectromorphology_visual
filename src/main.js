@@ -164,6 +164,17 @@ gui.add(debugParams, 'brushDebugMode').name('🖌 Режим кисти (debug)'
   brushDebugMode = v;
   brushDebug.setVisible(v);
   debugBgMesh.visible = v;
+
+  if (v) {
+    // Show only the original (non-instanced) ribbon in debug mode
+    ribbons.forEach(r => {
+      r.mesh.count = 1;
+      if (r.splitMesh.visible) r.splitMesh.count = 1;
+    });
+  } else {
+    // Restore mandala instances
+    updateAllInstances();
+  }
 });
 
 const fKaleido = gui.addFolder('Мандала / Симметрия');
