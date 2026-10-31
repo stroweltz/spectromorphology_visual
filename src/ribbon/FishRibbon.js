@@ -29,14 +29,19 @@ export class FishRibbon {
     this.maxWidth = options.maxWidth ?? 0.08;
     this.widthSpeed = options.widthSpeed ?? 0.22;
     this.widthPhase = options.widthPhase ?? (this.phaseOffset + Math.PI * 0.5);
-    this.currentWidth = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase));
-    this.baseWidth = this.currentWidth;
 
     // ── Radial Distance Thickness Limiter (Center Taper) ──
     // Constrains maximum stroke thickness when ribbon points are close to the origin (0, 0).
     // Prevents mandala center crowding/clumping and produces delicate filigree lines near the core.
     this.centerTaperStrength = options.centerTaperStrength ?? 0.85; // 0 = disabled, 1 = tapers to 0 at origin
     this.centerTaperRadius = options.centerTaperRadius ?? 0.35;     // Distance from origin where tapering begins
+
+    // ── Historical Stroke Width Buffer ──
+    // Stores the exact painted thickness for each vertebra (index 0 = head, segments-1 = tail).
+    // When the brush head breathes or passes near the center, already-drawn points retain the width
+    // they were created with as the stroke flows forward through time.
+    this.widths = new Float32Array(this.segments);
+    this._newWidths = new Float32Array(this.segments);
 
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
@@ -50,6 +55,20 @@ export class FishRibbon {
       Math.cos(this.phaseOffset) * (this.pathRadius || 0.42),
       Math.sin(this.phaseOffset) * (this.pathRadius || 0.42)
     );
+    this._prevHeadPos = this.headPos.clone();
+
+    // Initial width calculation at initial head position
+    const initR = this.headPos.length();
+    const initNormR = Math.min(1.0, initR / Math.max(0.001, this.centerTaperRadius));
+    const initSmoothR = initNormR * initNormR * (3.0 - 2.0 * initNormR);
+    const initRadial = (this.centerTaperStrength > 0.001)
+      ? (1.0 - this.centerTaperStrength * (1.0 - initSmoothR))
+      : 1.0;
+    const initW = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase)) * initRadial;
+    this.widths.fill(initW);
+    this.currentWidth = initW;
+    this.baseWidth = this.currentWidth;
+
     // Initial heading: tangent to circular orbit (counter-clockwise)
     this.headingAngle = this.phaseOffset + Math.PI * 0.5;
     this.angularVelocity = 0.0;
@@ -349,12 +368,23 @@ export class FishRibbon {
     const clampedDelta = Math.min(Math.max(delta || 0.016, 0.001), 0.05);
     this.widthPhase += this.widthSpeed * clampedDelta;
     const widthCycle = 0.5 - 0.5 * Math.cos(this.widthPhase);
-    this.currentWidth = this.maxWidth * widthCycle;
-    this.baseWidth = this.currentWidth;
+    let targetHeadWidth = this.maxWidth * widthCycle;
 
     // 1. Calculate leading head via autonomous steering kinematics
     const head = this._updateHeadAgent(time, delta);
     this.spine[0].copy(head);
+
+    // Apply Radial Limiter to Head's Width Generator:
+    // When the brush tip is near mandala center (0, 0), stroke thickness is limited/tapered.
+    if (this.centerTaperStrength > 0.001) {
+      const r = head.length();
+      const normR = Math.min(1.0, r / Math.max(0.001, this.centerTaperRadius));
+      const smoothR = normR * normR * (3.0 - 2.0 * normR); // Cubic Hermite smoothstep [0, 1]
+      const radialFactor = 1.0 - this.centerTaperStrength * (1.0 - smoothR);
+      targetHeadWidth *= radialFactor;
+    }
+    this.currentWidth = targetHeadWidth;
+    this.baseWidth = this.currentWidth;
 
     // Current forward speed
     const v = Math.max(0.0, this.orbitSpeed * 0.75 * this.audioSpeedMult);
@@ -378,6 +408,39 @@ export class FishRibbon {
         }
       }
     }
+
+    // 2b. Advect historical stroke thickness along the spine
+    // As the head moves forward, each segment inherits the thickness that was laid down
+    // when the brush traversed that point. This ensures already-drawn points retain their width.
+    const dStep = head.distanceTo(this._prevHeadPos);
+    this._prevHeadPos.copy(head);
+
+    const shift = (segDist > 0.0001) ? (dStep / segDist) : 0.0;
+    this._newWidths[0] = targetHeadWidth;
+
+    if (shift > 0.00001) {
+      for (let i = 1; i < this.segments; i++) {
+        const srcIndex = i - shift;
+        if (srcIndex <= 0.0) {
+          // Born between previous and current frame: interpolate from targetHeadWidth to previous widths[0]
+          const alpha = Math.max(0.0, Math.min(1.0, i / Math.max(0.0001, shift)));
+          this._newWidths[i] = THREE.MathUtils.lerp(targetHeadWidth, this.widths[0], alpha);
+        } else {
+          const k = Math.floor(srcIndex);
+          const f = srcIndex - k;
+          if (k + 1 < this.segments) {
+            this._newWidths[i] = THREE.MathUtils.lerp(this.widths[k], this.widths[k + 1], f);
+          } else {
+            this._newWidths[i] = this.widths[this.segments - 1];
+          }
+        }
+      }
+    } else {
+      for (let i = 1; i < this.segments; i++) {
+        this._newWidths[i] = this.widths[i];
+      }
+    }
+    this.widths.set(this._newWidths);
 
     // 3. Fish Swimming Wave (Carangiform Undulation)
     // Synchronize wave phase to forward speed:
@@ -467,19 +530,17 @@ export class FishRibbon {
       }
       this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
-      // Width envelope: tapered head, thick fleshy body, feather-light tail
-      const widthProfile = Math.sin(Math.pow(s, 0.72) * Math.PI);
+      // Width of this specific vertebra as recorded when it was drawn
+      const vertebraWidth = this.widths[i];
 
-      // Radial distance limiter: stroke thins down gracefully near the mandala center (0, 0)
-      let radialFactor = 1.0;
-      if (this.centerTaperStrength > 0.001) {
-        const r = c.length();
-        const normR = Math.min(1.0, r / Math.max(0.001, this.centerTaperRadius));
-        const smoothR = normR * normR * (3.0 - 2.0 * normR); // Cubic Hermite smoothstep [0, 1]
-        radialFactor = 1.0 - this.centerTaperStrength * (1.0 - smoothR);
+      // Smooth tail taper: graceful exit over the final 12% of the ribbon tail
+      let tailTaper = 1.0;
+      if (s > 0.88) {
+        const t = (s - 0.88) / 0.12;
+        tailTaper = Math.cos(t * Math.PI * 0.5); // 1.0 -> 0.0 smooth
       }
 
-      const halfWidth = (this.currentWidth * widthScale * 0.5) * Math.max(0.02, widthProfile) * radialFactor;
+      const halfWidth = (vertebraWidth * widthScale * 0.5) * tailTaper;
 
       // Left / right vertices along true normal
       this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);

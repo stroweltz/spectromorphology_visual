@@ -104,7 +104,8 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         col -= fiberFaint * uFiberIntensity * 0.3;
 
         // 5. Feathered ends of stroke (start & end)
-        float endFade = smoothstep(0.0, 0.08, u) * smoothstep(1.0, 0.88, u);
+        // Leading brush head is crisp and solid; trailing end softly dissolves
+        float endFade = smoothstep(0.0, 0.015, u) * smoothstep(1.0, 0.88, u);
         float finalAlpha = alphaEdge * endFade * uOpacity;
 
         gl_FragColor = vec4(col, finalAlpha);
