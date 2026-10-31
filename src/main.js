@@ -126,6 +126,7 @@ const params = {
   // Fish Motion & Kinematics
   motionSpeed: 1.1,
   orbitSpeed: 0.35,
+  minTurnRadius: 0.12,
   waveAmplitude: 0.065,
   waveFrequency: 4.2,
   splitting: 0.85,
@@ -184,6 +185,9 @@ fFish.add(params, 'motionSpeed', 0.2, 3.0, 0.1).name('Скорость плав�
 });
 fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кисти (орбита)').onChange(v => {
   ribbons.forEach(r => r.orbitSpeed = v);
+});
+fFish.add(params, 'minTurnRadius', 0.0, 0.4, 0.01).name('Мин. радиус поворота').onChange(v => {
+  ribbons.forEach(r => r.minTurnRadius = v);
 });
 fFish.add(params, 'waveAmplitude', 0.01, 0.15, 0.005).name('Размах волны (Амплитуда)').onChange(v => {
   ribbons.forEach(r => r.waveAmp = v);

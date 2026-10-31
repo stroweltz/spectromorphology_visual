@@ -25,6 +25,11 @@ export class FishRibbon {
     this.orbitSpeed = options.orbitSpeed || 0.4;
     this.splitIntensity = options.splitIntensity || 0.0; // 0 = single ribbon, >0 = bifurcated split
 
+    // ── Minimum turning radius constraint ──
+    // Prevents the head from making sharp U-turns that create visual noise.
+    // Larger value = smoother, wider turns.  0 = no constraint.
+    this.minTurnRadius = options.minTurnRadius ?? 0.12;
+
     // Material
     this.material = createPaperMaterial(options.color || 0xff385c);
     this.splitMaterial = createPaperMaterial(options.splitColor || options.color || 0xff8533);
@@ -49,6 +54,11 @@ export class FishRibbon {
     this._tmpLeft     = new THREE.Vector2();
     this._tmpRight    = new THREE.Vector2();
     this._tmpHead     = new THREE.Vector2();
+
+    // ── Turn-radius limiter state ──
+    this._prevHeadPos  = new THREE.Vector2();
+    this._prevHeading  = new THREE.Vector2(1, 0);
+    this._headInited   = false;
 
     // ── Max instances for mandala sectors × 2 (mirror) ──
     this._maxInstances = 64;
@@ -166,14 +176,80 @@ export class FishRibbon {
   }
 
   /**
+   * Clamps curvature so the head can't turn sharper than minTurnRadius.
+   * A gentle spring correction (6 % per frame) prevents long-term drift
+   * from the desired Lissajous path.
+   *
+   * @param {number} desiredX – raw head X from _getHeadPosition
+   * @param {number} desiredY – raw head Y from _getHeadPosition
+   * @returns {THREE.Vector2}   clamped position (writes into _tmpHead)
+   */
+  _applyTurnLimit(desiredX, desiredY) {
+    if (!this._headInited) {
+      this._prevHeadPos.set(desiredX, desiredY);
+      this._prevHeading.set(1, 0);
+      this._headInited = true;
+      return this._tmpHead.set(desiredX, desiredY);
+    }
+
+    // Vector from previous position to desired position
+    let dx = desiredX - this._prevHeadPos.x;
+    let dy = desiredY - this._prevHeadPos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 0.00001) {
+      return this._tmpHead.copy(this._prevHeadPos);
+    }
+
+    // Desired heading (unit vector)
+    const dhx = dx / dist;
+    const dhy = dy / dist;
+
+    // Angle between previous heading and desired heading
+    const cross = this._prevHeading.x * dhy - this._prevHeading.y * dhx;
+    const dot   = this._prevHeading.x * dhx + this._prevHeading.y * dhy;
+    let angle   = Math.atan2(cross, dot);
+
+    // Max allowed turn angle for this step:  Δθ_max = arcLength / R
+    const maxAngle = dist / Math.max(0.001, this.minTurnRadius);
+
+    if (Math.abs(angle) > maxAngle) {
+      angle = Math.sign(angle) * maxAngle;
+    }
+
+    // Compute clamped heading
+    const c  = Math.cos(angle);
+    const s  = Math.sin(angle);
+    const hx = this._prevHeading.x * c - this._prevHeading.y * s;
+    const hy = this._prevHeading.x * s + this._prevHeading.y * c;
+
+    // New position along clamped heading
+    let nx = this._prevHeadPos.x + hx * dist;
+    let ny = this._prevHeadPos.y + hy * dist;
+
+    // Gentle spring correction toward the desired trajectory (prevents drift)
+    const pull = 0.06;
+    nx += (desiredX - nx) * pull;
+    ny += (desiredY - ny) * pull;
+
+    this._prevHeadPos.set(nx, ny);
+    this._prevHeading.set(hx, hy);
+
+    return this._tmpHead.set(nx, ny);
+  }
+
+  /**
    * Updates kinematics and ribbon vertex buffer
    */
   update(time, delta) {
     this.material.uniforms.uTime.value = time;
     this.splitMaterial.uniforms.uTime.value = time;
 
-    // 1. Calculate leading head
-    const head = this._getHeadPosition(time);
+    // 1. Calculate leading head (with turn-radius constraint)
+    const raw = this._getHeadPosition(time);
+    const head = (this.minTurnRadius > 0)
+      ? this._applyTurnLimit(raw.x, raw.y)
+      : raw;
     this.spine[0].copy(head);
 
     // 2. Spine follow-through (IK kinematic drag from head to tail)
