@@ -106,9 +106,11 @@ debugBgMesh.position.z = -0.5;
 debugBgMesh.visible    = false;
 strokeScene.add(debugBgMesh);
 
-// Camera for debug view: renders strokeScene directly to screen, same frustum
-const debugCamera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.1, 10);
+// Camera for debug view: renders strokeScene directly to screen with aspect correction
+const initAspect = width / height;
+const debugCamera = new THREE.OrthographicCamera(-0.7 * initAspect, 0.7 * initAspect, 0.7, -0.7, 0.1, 10);
 debugCamera.position.z = 1;
+debugBgMesh.scale.set(initAspect * 2.0, 2.0, 1);
 
 // State flag
 let brushDebugMode = false;
@@ -270,13 +272,23 @@ fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v 
   kaleidoscopeMaterial.uniforms.uVignette.value = v;
 });
 
-// Resize Handler
-window.addEventListener('resize', () => {
+// Resize Handler: maintains aspect ratio for both display shader and debug camera
+function handleResize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
+  const aspect = w / h;
   renderer.setSize(w, h);
-  kaleidoscopeMaterial.uniforms.uAspect.value = w / h;
-});
+  kaleidoscopeMaterial.uniforms.uAspect.value = aspect;
+
+  debugCamera.left = -0.7 * aspect;
+  debugCamera.right = 0.7 * aspect;
+  debugCamera.top = 0.7;
+  debugCamera.bottom = -0.7;
+  debugCamera.updateProjectionMatrix();
+
+  debugBgMesh.scale.set(aspect * 2.0, 2.0, 1);
+}
+window.addEventListener('resize', handleResize);
 
 // 6. Animation Loop
 const clock = new THREE.Clock();

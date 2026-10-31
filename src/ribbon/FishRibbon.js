@@ -66,6 +66,15 @@ export class FishRibbon {
       this.splitSpine.push(this.spine[i].clone());
     }
 
+    // ── Preallocated centerline vectors for smooth normal extrusion ──
+    this._centerline = [];
+    for (let i = 0; i < this.segments; i++) {
+      this._centerline.push(this.spine[i].clone());
+    }
+
+    // Dynamic wave phase synchronized with movement speed
+    this.wavePhase = this.phaseOffset;
+
     // ── Reusable temp vectors (avoid per-frame allocations / GC pressure) ──
     this._tmpDir      = new THREE.Vector2();
     this._tmpTangent  = new THREE.Vector2();
@@ -185,12 +194,14 @@ export class FishRibbon {
     );
     this.headingAngle = this.phaseOffset + Math.PI * 0.5;
     this.angularVelocity = 0.0;
+    this.wavePhase = this.phaseOffset;
 
     const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
     const initSegDist = 0.018 * (this.speed / 1.0);
     for (let i = 0; i < this.segments; i++) {
       this.spine[i].copy(this.headPos).addScaledVector(initDir, -i * initSegDist);
       this.splitSpine[i].copy(this.spine[i]);
+      this._centerline[i].copy(this.spine[i]);
     }
   }
 
@@ -294,30 +305,44 @@ export class FishRibbon {
     const head = this._updateHeadAgent(time, delta);
     this.spine[0].copy(head);
 
+    // Current forward speed
+    const v = Math.max(0.0, this.orbitSpeed * 0.75 * this.audioSpeedMult);
+
     // 2. Spine follow-through (IK kinematic drag from head to tail)
+    // Sub-stepping at higher speeds eliminates the whip-like phase lag / catch-up snap
+    const substeps = (v > 0.45) ? 2 : 1;
     const segDist = 0.018 * (this.speed / 1.0);
-    for (let i = 1; i < this.segments; i++) {
-      const prev = this.spine[i - 1];
-      const curr = this.spine[i];
-      this._tmpDir.subVectors(curr, prev);
-      const len = this._tmpDir.length();
-      if (len > 0.0001) {
-        this._tmpDir.multiplyScalar(segDist / len);
-        curr.copy(prev).add(this._tmpDir);
-      } else {
-        curr.copy(prev);
+
+    for (let step = 0; step < substeps; step++) {
+      for (let i = 1; i < this.segments; i++) {
+        const prev = this.spine[i - 1];
+        const curr = this.spine[i];
+        this._tmpDir.subVectors(curr, prev);
+        const len = this._tmpDir.length();
+        if (len > 0.0001) {
+          this._tmpDir.multiplyScalar(segDist / len);
+          curr.copy(prev).add(this._tmpDir);
+        } else {
+          curr.copy(prev);
+        }
       }
     }
 
     // 3. Fish Swimming Wave (Carangiform Undulation)
-    // Applied laterally relative to the spine's tangents
+    // Synchronize wave phase to forward speed:
+    // When slow/stationary, it has a slow, gentle sway; when fast, wave frequency scales naturally.
+    const waveSpeed = v * 11.0 + 0.6;
+    this.wavePhase += waveSpeed * Math.min(delta || 0.016, 0.05);
+
+    // Lateral amplitude scales with forward speed (avoids rapid flapping while crawling)
+    const speedFactor = THREE.MathUtils.clamp(v / 0.35, 0.25, 1.15);
     const lateralOffsets = [];
     for (let i = 0; i < this.segments; i++) {
       const s = i / (this.segments - 1); // 0 at head, 1 at tail
       
-      // Amplitude envelope: 0 at head, swells towards middle and tail
-      const amp = this.waveAmp * Math.pow(s, 1.4);
-      const wave = Math.sin(this.waveFreq * s * Math.PI * 2.0 - time * 4.2 + this.phaseOffset);
+      // Biomechanical amplitude envelope: gentle at head, swells along body, smoothly eases at tail tip
+      const amp = this.waveAmp * speedFactor * Math.sin(Math.pow(s, 0.85) * Math.PI * 0.5) * (1.0 - 0.22 * s);
+      const wave = Math.sin(this.waveFreq * s * Math.PI * 2.0 - this.wavePhase);
       lateralOffsets.push(amp * wave);
     }
 
@@ -346,56 +371,67 @@ export class FishRibbon {
     const uvAttr = geometry.attributes.uv;
     const positions = posAttr.array;
     const uvs = uvAttr.array;
+    const segs = this.segments;
 
-    // Reuse preallocated temp vectors – zero GC pressure
-    const tangent   = this._tmpTangent;
-    const normal    = this._tmpNormal;
-    const centerPos = this._tmpCenter;
-    const left      = this._tmpLeft;
-    const right     = this._tmpRight;
-
-    for (let i = 0; i < this.segments; i++) {
-      const s = i / (this.segments - 1);
+    // Pass 1: Compute the continuous undulating centerline positions
+    // Uses central-difference normals of the spine to avoid abrupt turns
+    for (let i = 0; i < segs; i++) {
+      const s = i / (segs - 1);
       const curr = spine[i];
 
-      // Tangent calculation (reuse tangent vec)
-      if (i < this.segments - 1) {
-        tangent.subVectors(spine[i + 1], curr).normalize();
-      } else if (i > 0) {
-        tangent.subVectors(curr, spine[i - 1]).normalize();
+      // Central difference tangent of spine
+      if (i === 0) {
+        this._tmpTangent.subVectors(spine[1], curr).normalize();
+      } else if (i === segs - 1) {
+        this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
       } else {
-        tangent.set(1, 0);
+        this._tmpTangent.subVectors(spine[i + 1], spine[i - 1]).normalize();
       }
+      this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
-      // Normal (perpendicular) — reuse normal vec
-      normal.set(-tangent.y, tangent.x);
+      // Base centerline with lateral undulation offset
+      const c = this._centerline[i];
+      c.copy(curr).addScaledVector(this._tmpNormal, lateralOffsets[i]);
 
-      // Fish lateral wave offset
-      const lat = lateralOffsets[i];
-      centerPos.copy(curr).addScaledVector(normal, lat);
-
-      // If this is a split branch, diverge outward along the normal
+      // If split branch, diverge outward along the normal
       if (splitDivergence > 0.0) {
         const divergeFactor = Math.sin(Math.PI * s) * splitDivergence * 0.12;
-        centerPos.addScaledVector(normal, -divergeFactor);
+        c.addScaledVector(this._tmpNormal, -divergeFactor);
       }
+    }
+
+    // Pass 2: Extrude ribbon vertices perpendicular to the TRUE undulating centerline
+    // This mathematically prevents self-intersecting folded triangles at the tail.
+    for (let i = 0; i < segs; i++) {
+      const s = i / (segs - 1);
+      const c = this._centerline[i];
+
+      // Tangent along the undulating centerline
+      if (i === 0) {
+        this._tmpTangent.subVectors(this._centerline[1], c).normalize();
+      } else if (i === segs - 1) {
+        this._tmpTangent.subVectors(c, this._centerline[i - 1]).normalize();
+      } else {
+        this._tmpTangent.subVectors(this._centerline[i + 1], this._centerline[i - 1]).normalize();
+      }
+      this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
       // Width envelope: tapered head, thick fleshy body, feather-light tail
       const widthProfile = Math.sin(Math.pow(s, 0.72) * Math.PI);
-      const halfWidth = (this.baseWidth * widthScale * 0.5) * Math.max(0.08, widthProfile);
+      const halfWidth = (this.baseWidth * widthScale * 0.5) * Math.max(0.04, widthProfile);
 
-      // Left / right vertices — reuse left/right vecs
-      left.copy(centerPos).addScaledVector(normal,  halfWidth);
-      right.copy(centerPos).addScaledVector(normal, -halfWidth);
+      // Left / right vertices along true normal
+      this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);
+      this._tmpRight.copy(c).addScaledVector(this._tmpNormal, -halfWidth);
 
       // Write positions
       const vIdx = i * 2;
-      positions[vIdx * 3 + 0] = left.x;
-      positions[vIdx * 3 + 1] = left.y;
+      positions[vIdx * 3 + 0] = this._tmpLeft.x;
+      positions[vIdx * 3 + 1] = this._tmpLeft.y;
       positions[vIdx * 3 + 2] = 0.0;
 
-      positions[(vIdx + 1) * 3 + 0] = right.x;
-      positions[(vIdx + 1) * 3 + 1] = right.y;
+      positions[(vIdx + 1) * 3 + 0] = this._tmpRight.x;
+      positions[(vIdx + 1) * 3 + 1] = this._tmpRight.y;
       positions[(vIdx + 1) * 3 + 2] = 0.0;
 
       // Write UVs: u along stroke, v across (-1.0 to 1.0)
