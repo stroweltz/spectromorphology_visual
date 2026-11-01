@@ -206,7 +206,93 @@ ribbons.forEach((ribbon, index) => {
 const mainScene = new THREE.Scene();
 const mainCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+const bgModeMap = {
+  'solid': 0.0,
+  'radial': 1.0,
+  'nebula': 2.0,
+  'waves': 3.0,
+  'aurora': 4.0
+};
+
+const bgPresets = {
+  '🌌 Полночный Индиго': {
+    bgMode: 'nebula',
+    bgOuter: '#030406',
+    bgInner: '#0c1527',
+    bgAccent: '#160a22',
+    nebulaIntensity: 5.5,
+    nebulaSpeed: 2.5,
+    nebulaScale: 1.4,
+    vignette: 0.75
+  },
+  '🍷 Винный Обсидиан': {
+    bgMode: 'nebula',
+    bgOuter: '#040205',
+    bgInner: '#200814',
+    bgAccent: '#140822',
+    nebulaIntensity: 5.0,
+    nebulaSpeed: 2.2,
+    nebulaScale: 1.3,
+    vignette: 0.8
+  },
+  '🌲 Изумрудный Петроль': {
+    bgMode: 'nebula',
+    bgOuter: '#020504',
+    bgInner: '#061d19',
+    bgAccent: '#081824',
+    nebulaIntensity: 5.0,
+    nebulaSpeed: 2.4,
+    nebulaScale: 1.5,
+    vignette: 0.75
+  },
+  '🌊 Глубоководный Пульс': {
+    bgMode: 'waves',
+    bgOuter: '#030508',
+    bgInner: '#081a2e',
+    bgAccent: '#0a2328',
+    nebulaIntensity: 4.8,
+    nebulaSpeed: 2.0,
+    nebulaScale: 1.6,
+    vignette: 0.7
+  },
+  '🌠 Северное Сияние': {
+    bgMode: 'aurora',
+    bgOuter: '#020406',
+    bgInner: '#071f1a',
+    bgAccent: '#0f142b',
+    nebulaIntensity: 5.2,
+    nebulaSpeed: 2.2,
+    nebulaScale: 1.4,
+    vignette: 0.75
+  },
+  '🌑 Монохромный Графит': {
+    bgMode: 'nebula',
+    bgOuter: '#030304',
+    bgInner: '#15171e',
+    bgAccent: '#0c0d11',
+    nebulaIntensity: 4.5,
+    nebulaSpeed: 2.0,
+    nebulaScale: 1.5,
+    vignette: 0.8
+  },
+  '⬛ Абсолютная Тьма': {
+    bgMode: 'solid',
+    bgOuter: '#020202',
+    bgInner: '#050505',
+    bgAccent: '#030303',
+    nebulaIntensity: 0.0,
+    nebulaSpeed: 1.0,
+    nebulaScale: 1.0,
+    vignette: 0.6
+  }
+};
+
 const kaleidoscopeMaterial = createKaleidoscopeMaterial();
+
+function applyBgMode(modeKey) {
+  const val = bgModeMap[modeKey] ?? 2.0;
+  kaleidoscopeMaterial.uniforms.uBgType.value = val;
+}
 kaleidoscopeMaterial.uniforms.tDiffuse.value = strokeRenderTarget.texture;
 kaleidoscopeMaterial.uniforms.uAspect.value = width / height;
 kaleidoscopeMaterial.uniforms.uStrokeScale.value = 0.7 / initStrokeExtent;
@@ -280,10 +366,15 @@ const params = {
   independentWidth: true,       // Независимая толщина мазков
   widthAsymmetry: 6.5,          // Степень асинхронности [0..10]
 
-  // Background
-  bgGradient: true,
-  bgInner: '#0e121d',
-  bgOuter: '#040507',
+  // Background & Atmosphere
+  bgMode: 'nebula',
+  bgPreset: '🌌 Полночный Индиго',
+  bgInner: '#0c1527',
+  bgOuter: '#030406',
+  bgAccent: '#160a22',
+  nebulaIntensity: 5.5,
+  nebulaSpeed: 2.5,
+  nebulaScale: 1.4,
   vignette: 0.75,
   filmGrain: 0.0,
 
@@ -292,6 +383,17 @@ const params = {
   screenDpi: 1.5,
   autoRadiusCoupling: true
 };
+
+// Sync initial background uniforms with params
+applyBgMode(params.bgMode);
+kaleidoscopeMaterial.uniforms.uBgInner.value.set(params.bgInner);
+kaleidoscopeMaterial.uniforms.uBgOuter.value.set(params.bgOuter);
+kaleidoscopeMaterial.uniforms.uBgAccent.value.set(params.bgAccent);
+kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = params.nebulaIntensity * 0.10;
+kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = params.nebulaSpeed * 0.10;
+kaleidoscopeMaterial.uniforms.uNebulaScale.value = params.nebulaScale;
+kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
+kaleidoscopeMaterial.uniforms.uFilmGrain.value = params.filmGrain;
 
 // ── Helper: propagate sector / mirror changes to all ribbon instances ──
 function updateAllInstances() {
@@ -591,7 +693,7 @@ if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has(
 }
 
 // ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1_2';
+const STORAGE_KEY = 'spectromorphology_user_settings_v1_3_bg';
 
 function showToast(message, isError = false) {
   const toast = document.getElementById('hud-toast');
@@ -1005,19 +1107,87 @@ fWidthVar.add(params, 'widthAsymmetry', 0.0, 10.0, 0.1).name('Асинхронн
 });
 fWidthVar.add({ reroll: rerollBrushWidths }, 'reroll').name('🎲 Новые ритмы толщины');
 
-const fBg = gui.addFolder('Фон и оптика');
-fBg.add(params, 'bgGradient').name('Градиентный фон').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uBgType.value = v ? 1.0 : 0.0;
+const fBg = gui.addFolder('🌌 Атмосфера и градиенты фона');
+
+let bgModeCtrl, intensityCtrl, speedCtrl, scaleCtrl, bgInnerCtrl, bgAccentCtrl, bgOuterCtrl, vigCtrl;
+
+fBg.add(params, 'bgPreset', Object.keys(bgPresets))
+  .name('✨ Пресет атмосферы')
+  .onChange(presetName => {
+    const p = bgPresets[presetName];
+    if (!p) return;
+    params.bgMode = p.bgMode;
+    params.bgOuter = p.bgOuter;
+    params.bgInner = p.bgInner;
+    params.bgAccent = p.bgAccent;
+    params.nebulaIntensity = p.nebulaIntensity;
+    params.nebulaSpeed = p.nebulaSpeed;
+    params.nebulaScale = p.nebulaScale;
+    params.vignette = p.vignette;
+
+    applyBgMode(p.bgMode);
+    kaleidoscopeMaterial.uniforms.uBgOuter.value.set(p.bgOuter);
+    kaleidoscopeMaterial.uniforms.uBgInner.value.set(p.bgInner);
+    kaleidoscopeMaterial.uniforms.uBgAccent.value.set(p.bgAccent);
+    kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = p.nebulaIntensity * 0.10;
+    kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = p.nebulaSpeed * 0.10;
+    kaleidoscopeMaterial.uniforms.uNebulaScale.value = p.nebulaScale;
+    kaleidoscopeMaterial.uniforms.uVignette.value = p.vignette;
+
+    if (bgModeCtrl) bgModeCtrl.updateDisplay();
+    if (bgOuterCtrl) bgOuterCtrl.updateDisplay();
+    if (bgInnerCtrl) bgInnerCtrl.updateDisplay();
+    if (bgAccentCtrl) bgAccentCtrl.updateDisplay();
+    if (intensityCtrl) intensityCtrl.updateDisplay();
+    if (speedCtrl) speedCtrl.updateDisplay();
+    if (scaleCtrl) scaleCtrl.updateDisplay();
+    if (vigCtrl) vigCtrl.updateDisplay();
+  });
+
+bgModeCtrl = fBg.add(params, 'bgMode', {
+  '🌌 Дыхание Бездны (Небула)': 'nebula',
+  '🌊 Циклические волны (Пульс)': 'waves',
+  '🌠 Северное сияние (Аврора)': 'aurora',
+  '🔘 Мягкий радиальный': 'radial',
+  '⬛ Сплошной тёмный': 'solid'
+}).name('Режим свечения').onChange(v => {
+  applyBgMode(v);
 });
-fBg.addColor(params, 'bgInner').name('Центр фона').onChange(hex => {
+
+intensityCtrl = fBg.add(params, 'nebulaIntensity', 0.0, 10.0, 0.1)
+  .name('Яркость свечения (0..10)')
+  .onChange(v => {
+    kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = v * 0.10;
+  });
+
+speedCtrl = fBg.add(params, 'nebulaSpeed', 0.1, 10.0, 0.1)
+  .name('Скорость дыхания (0..10)')
+  .onChange(v => {
+    kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = v * 0.10;
+  });
+
+scaleCtrl = fBg.add(params, 'nebulaScale', 0.5, 3.0, 0.1)
+  .name('Размытость / Масштаб')
+  .onChange(v => {
+    kaleidoscopeMaterial.uniforms.uNebulaScale.value = v;
+  });
+
+bgInnerCtrl = fBg.addColor(params, 'bgInner').name('Основной свет (центр)').onChange(hex => {
   kaleidoscopeMaterial.uniforms.uBgInner.value.set(hex);
 });
-fBg.addColor(params, 'bgOuter').name('Края фона').onChange(hex => {
+
+bgAccentCtrl = fBg.addColor(params, 'bgAccent').name('Акцентный свет (небула)').onChange(hex => {
+  kaleidoscopeMaterial.uniforms.uBgAccent.value.set(hex);
+});
+
+bgOuterCtrl = fBg.addColor(params, 'bgOuter').name('Глубокая тьма (края)').onChange(hex => {
   kaleidoscopeMaterial.uniforms.uBgOuter.value.set(hex);
 });
-fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v => {
+
+vigCtrl = fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v => {
   kaleidoscopeMaterial.uniforms.uVignette.value = v;
 });
+
 fBg.add(params, 'filmGrain', 0.0, 10.0, 0.1).name('Зернистость плёнки (0..10)').onChange(v => {
   kaleidoscopeMaterial.uniforms.uFilmGrain.value = v;
 });
