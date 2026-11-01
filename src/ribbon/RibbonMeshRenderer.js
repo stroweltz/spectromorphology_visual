@@ -322,6 +322,26 @@ export class RibbonMeshRenderer {
     if (colAttr) colAttr.needsUpdate = true;
   }
 
+  /**
+   * Dynamically updates base and secondary split colors without geometry reallocation.
+   * @param {THREE.Color|string|number} color
+   * @param {THREE.Color|string|number} [splitColor]
+   */
+  setColors(color, splitColor) {
+    if (color !== undefined) {
+      this.baseColor.set(color);
+      if (this.material && this.material.uniforms && this.material.uniforms.uColor) {
+        this.material.uniforms.uColor.value.set(color);
+      }
+    }
+    if (splitColor !== undefined) {
+      this.secondaryColor.set(splitColor);
+      if (this.splitMaterial && this.splitMaterial.uniforms && this.splitMaterial.uniforms.uColor) {
+        this.splitMaterial.uniforms.uColor.value.set(splitColor);
+      }
+    }
+  }
+
   dispose() {
     this.geometry.dispose();
     this.splitGeometry.dispose();

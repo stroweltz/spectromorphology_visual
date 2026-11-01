@@ -70,6 +70,13 @@ export class BrushDebugOverlay {
 
     this.setVisible(false);
   }
+  updateColors(ribbons) {
+    ribbons.forEach((r, idx) => {
+      if (this._colors[idx] && r.baseColor) this._colors[idx].copy(r.baseColor);
+      if (this._splitColors[idx] && r.splitColor) this._splitColors[idx].copy(r.splitColor);
+    });
+  }
+
 
   // ─────────────────────── builders ────────────────────────
 

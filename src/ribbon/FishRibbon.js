@@ -238,6 +238,18 @@ export class FishRibbon {
   get headTipWidth() { return this.renderer.headTipWidth; }
   set headTipWidth(v) { this.renderer.headTipWidth = v; }
 
+  get baseColor() { return this.renderer.baseColor; }
+  get splitColor() { return this.renderer.secondaryColor; }
+
+  /**
+   * Updates primary and split ribbon colors.
+   * @param {THREE.Color|string|number} color
+   * @param {THREE.Color|string|number} [splitColor]
+   */
+  setColors(color, splitColor) {
+    this.renderer.setColors(color, splitColor);
+  }
+
   // ── High-Level Coordinator Methods ──
 
   /**

@@ -11,9 +11,9 @@ export function createKaleidoscopeMaterial() {
       uSampleCenter: { value: new THREE.Vector2(0.5, 0.5) },
       uStrokeScale: { value: 0.7 / 1.05 }, // maps screen space to tightly fitted FBO UV
       uMirror: { value: 1.0 },             // kept for GUI reads
-      uBgType: { value: 2.0 },             // 0: solid, 1: radial, 2: nebula (default), 3: waves, 4: aurora
-      uBgInner: { value: new THREE.Color(0x0c1527) }, // deep midnight indigo
-      uBgOuter: { value: new THREE.Color(0x030406) }, // pitch black
+      uBgType: { value: 1.0 },             // 0: solid, 1: radial, 2: nebula (default), 3: waves, 4: aurora
+      uBgInner: { value: new THREE.Color(0x0c0e14) }, // deep midnight indigo
+      uBgOuter: { value: new THREE.Color(0x000000) }, // pitch black
       uBgAccent: { value: new THREE.Color(0x160a22) }, // deep velvet plum
       uNebulaSpeed: { value: 0.25 },
       uNebulaIntensity: { value: 0.55 },
@@ -181,6 +181,8 @@ export function createKaleidoscopeMaterial() {
         }
 
         gl_FragColor = vec4(finalColor, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });

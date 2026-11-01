@@ -34,6 +34,7 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { FishRibbon } from './ribbon/FishRibbon.js';
 import { createKaleidoscopeMaterial } from './shaders/kaleidoscopeMaterial.js';
+import { COLOR_THEMES } from './themes/colorThemes.js';
 import { BrushDebugOverlay } from './ribbon/BrushDebugOverlay.js';
 
 // --- Global Setup ---
@@ -45,6 +46,9 @@ const height = window.innerHeight;
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(width, height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.0;
 renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accumulation
 container.appendChild(renderer.domElement);
 
@@ -367,11 +371,21 @@ const params = {
   independentWidth: true,       // Независимая толщина мазков
   widthAsymmetry: 6.5,          // Степень асинхронности [0..10]
 
+  // Color Themes & Harmonized Palette
+  colorTheme: '🌈 Classic Neon / True Obsidian',
+  toneMappingMode: 'agx',
+  layer1Color: '#ef2353',
+  layer1Split: '#ffaa00',
+  layer2Color: '#00d2d3',
+  layer2Split: '#10ac84',
+  layer3Color: '#9b59b6',
+  layer3Split: '#ff6b6b',
+
   // Background & Atmosphere
-  bgMode: 'nebula',
-  bgPreset: '🌌 Полночный Индиго',
-  bgInner: '#0c1527',
-  bgOuter: '#030406',
+  bgMode: 'radial',
+  bgPreset: '🌑 Монохромный Графит',
+  bgInner: '#0c0e14',
+  bgOuter: '#000000',
   bgAccent: '#160a22',
   nebulaIntensity: 5.5,
   nebulaSpeed: 2.5,
@@ -455,6 +469,58 @@ function rerollBrushWidths() {
     r.widthPhase = Math.random() * Math.PI * 2.0;
     r.widthHarmonicPhase = Math.random() * Math.PI * 2.0;
   });
+}
+
+
+// ── Curated Master Color Themes Integration ────────────────
+let themeCtrl, descCtrl;
+let l1ColCtrl, l1SplitCtrl, l2ColCtrl, l2SplitCtrl, l3ColCtrl, l3SplitCtrl;
+const themeDesc = { text: COLOR_THEMES[params.colorTheme]?.archetype || 'Абсолютный неоновый контраст на черном' };
+
+function applyColorTheme(themeKey) {
+  const t = COLOR_THEMES[themeKey];
+  if (!t) return;
+  params.colorTheme = themeKey;
+  params.bgOuter = t.bgOuter;
+  params.bgInner = t.bgInner;
+  params.vignette = t.vignette;
+  params.bgMode = t.bgMode;
+
+  applyBgMode(t.bgMode);
+  kaleidoscopeMaterial.uniforms.uBgOuter.value.set(t.bgOuter);
+  kaleidoscopeMaterial.uniforms.uBgInner.value.set(t.bgInner);
+  kaleidoscopeMaterial.uniforms.uVignette.value = t.vignette;
+
+  t.layers.forEach((l, idx) => {
+    if (ribbons[idx]) {
+      ribbons[idx].setColors(l.color, l.splitColor);
+    }
+  });
+
+  if (brushDebug && typeof brushDebug.updateColors === 'function') {
+    brushDebug.updateColors(ribbons);
+  }
+
+  params.layer1Color = t.layers[0].color;
+  params.layer1Split = t.layers[0].splitColor;
+  params.layer2Color = t.layers[1].color;
+  params.layer2Split = t.layers[1].splitColor;
+  params.layer3Color = t.layers[2].color;
+  params.layer3Split = t.layers[2].splitColor;
+
+  if (themeDesc) themeDesc.text = t.archetype;
+  if (descCtrl) descCtrl.updateDisplay();
+  if (themeCtrl) themeCtrl.updateDisplay();
+  if (bgOuterCtrl) bgOuterCtrl.updateDisplay();
+  if (bgInnerCtrl) bgInnerCtrl.updateDisplay();
+  if (vigCtrl) vigCtrl.updateDisplay();
+  if (bgModeCtrl) bgModeCtrl.updateDisplay();
+  if (l1ColCtrl) l1ColCtrl.updateDisplay();
+  if (l1SplitCtrl) l1SplitCtrl.updateDisplay();
+  if (l2ColCtrl) l2ColCtrl.updateDisplay();
+  if (l2SplitCtrl) l2SplitCtrl.updateDisplay();
+  if (l3ColCtrl) l3ColCtrl.updateDisplay();
+  if (l3SplitCtrl) l3SplitCtrl.updateDisplay();
 }
 
 const gui = new GUI({ title: 'Параметры Визуализатора' });
@@ -696,7 +762,7 @@ if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has(
 }
 
 // ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1_3_bg';
+const STORAGE_KEY = 'spectromorphology_user_settings_v1_4_themes';
 
 function showToast(message, isError = false) {
   const toast = document.getElementById('hud-toast');
@@ -902,6 +968,30 @@ fPerf.add(params, 'screenDpi', {
   renderer.setPixelRatio(v);
 });
 fPerf.close();
+
+
+const fTheme = gui.addFolder('🎨 Художественные темы и Цвета');
+descCtrl = fTheme.add(themeDesc, 'text').name('ℹ️ Стиль').listen().disable();
+
+themeCtrl = fTheme.add(params, 'colorTheme', Object.keys(COLOR_THEMES))
+  .name('✨ Выбор палитры')
+  .onChange(applyColorTheme);
+
+fTheme.add(params, 'toneMappingMode', {
+  'AgX Cinema (Мягкое свечение)': 'agx',
+  'Без тонемаппинга (Прямой)': 'none'
+}).name('Тонемаппинг').onChange(v => {
+  renderer.toneMapping = (v === 'agx') ? THREE.AgXToneMapping : THREE.NoToneMapping;
+});
+
+const fCustomColors = fTheme.addFolder('🎛 Тонкая настройка цветов кистей');
+l1ColCtrl = fCustomColors.addColor(params, 'layer1Color').name('Кисть 1 (Ядро): Основной').onChange(v => ribbons[0].setColors(v, params.layer1Split));
+l1SplitCtrl = fCustomColors.addColor(params, 'layer1Split').name('Кисть 1 (Ядро): Сплит').onChange(v => ribbons[0].setColors(params.layer1Color, v));
+l2ColCtrl = fCustomColors.addColor(params, 'layer2Color').name('Кисть 2 (Середина): Основной').onChange(v => ribbons[1].setColors(v, params.layer2Split));
+l2SplitCtrl = fCustomColors.addColor(params, 'layer2Split').name('Кисть 2 (Середина): Сплит').onChange(v => ribbons[1].setColors(params.layer2Color, v));
+l3ColCtrl = fCustomColors.addColor(params, 'layer3Color').name('Кисть 3 (Орбита): Основной').onChange(v => ribbons[2].setColors(v, params.layer3Split));
+l3SplitCtrl = fCustomColors.addColor(params, 'layer3Split').name('Кисть 3 (Орбита): Сплит').onChange(v => ribbons[2].setColors(params.layer3Color, v));
+fCustomColors.close();
 
 const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
 const layerParams = {
