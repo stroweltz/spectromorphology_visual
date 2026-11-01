@@ -294,6 +294,148 @@ function rerollBrushWidths() {
 
 const gui = new GUI({ title: 'Параметры Визуализатора' });
 
+// ── LocalStorage Settings Persistence ───────────────────
+const STORAGE_KEY = 'spectromorphology_user_settings_v1';
+
+function showToast(message, isError = false) {
+  const toast = document.getElementById('hud-toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.style.borderColor = isError ? 'rgba(245, 101, 101, 0.65)' : 'rgba(72, 187, 120, 0.65)';
+  toast.style.color = isError ? '#f56565' : '#48bb78';
+  toast.style.boxShadow = isError
+    ? '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 101, 101, 0.25)'
+    : '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(72, 187, 120, 0.25)';
+  toast.style.display = 'block';
+  toast.style.opacity = '1';
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { toast.style.display = 'none'; }, 300);
+  }, 2200);
+}
+
+const defaultParams = JSON.parse(JSON.stringify(params));
+const defaultLayerParams = { layer1: true, layer2: true, layer3: true };
+const defaultPerfParams = { showTelemetry: true };
+const defaultDebugParams = { brushDebugMode: false };
+
+const storageParams = {
+  autoSave: true
+};
+
+let isRestoringSettings = false;
+
+function saveCurrentSettings(showNotification = true) {
+  try {
+    const data = {
+      params: { ...params },
+      layerParams: { ...layerParams },
+      perfParams: { ...perfParams },
+      debugParams: { ...debugParams },
+      storageParams: { ...storageParams },
+      initialSpeedRatios: [...initialSpeedRatios],
+      initialWidthRatios: [...initialWidthRatios],
+      timestamp: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (showNotification) {
+      showToast('💾 Параметры сохранены в localStorage');
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+    if (showNotification) {
+      showToast('❌ Ошибка сохранения в localStorage', true);
+    }
+    return false;
+  }
+}
+
+function loadSavedSettings(silent = false) {
+  isRestoringSettings = true;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data) return false;
+
+    if (Array.isArray(data.initialSpeedRatios) && data.initialSpeedRatios.length === 3) {
+      for (let i = 0; i < 3; i++) initialSpeedRatios[i] = data.initialSpeedRatios[i];
+    }
+    if (Array.isArray(data.initialWidthRatios) && data.initialWidthRatios.length === 3) {
+      for (let i = 0; i < 3; i++) initialWidthRatios[i] = data.initialWidthRatios[i];
+    }
+
+    if (data.storageParams && typeof data.storageParams.autoSave === 'boolean') {
+      storageParams.autoSave = data.storageParams.autoSave;
+    }
+
+    // Apply values through controllers so that onChange callbacks fire properly
+    const controllers = gui.controllersRecursive();
+    controllers.forEach(ctrl => {
+      const prop = ctrl.property;
+      if (typeof ctrl.getValue() === 'function') return;
+
+      if (data.params && prop in data.params) {
+        ctrl.setValue(data.params[prop]);
+      } else if (data.layerParams && prop in data.layerParams) {
+        ctrl.setValue(data.layerParams[prop]);
+      } else if (data.perfParams && prop in data.perfParams) {
+        ctrl.setValue(data.perfParams[prop]);
+      } else if (data.debugParams && prop in data.debugParams) {
+        ctrl.setValue(data.debugParams[prop]);
+      } else if (data.storageParams && prop in data.storageParams) {
+        ctrl.setValue(data.storageParams[prop]);
+      }
+    });
+
+    if (!silent) {
+      showToast('📂 Загружены сохранённые параметры');
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+    return false;
+  } finally {
+    isRestoringSettings = false;
+  }
+}
+
+function resetToDefaultSettings() {
+  isRestoringSettings = true;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+
+    const controllers = gui.controllersRecursive();
+    controllers.forEach(ctrl => {
+      const prop = ctrl.property;
+      if (typeof ctrl.getValue() === 'function') return;
+
+      if (prop in defaultParams) {
+        ctrl.setValue(defaultParams[prop]);
+      } else if (prop in defaultLayerParams) {
+        ctrl.setValue(defaultLayerParams[prop]);
+      } else if (prop in defaultPerfParams) {
+        ctrl.setValue(defaultPerfParams[prop]);
+      } else if (prop in defaultDebugParams) {
+        ctrl.setValue(defaultDebugParams[prop]);
+      }
+    });
+
+    showToast('↺ Настройки сброшены к заводским');
+  } catch (err) {
+    console.error('Failed to reset settings:', err);
+  } finally {
+    isRestoringSettings = false;
+  }
+}
+
+// ── Top Action: Save Button ─────────────────────────────
+gui.add({
+  saveNow: () => saveCurrentSettings(true)
+}, 'saveNow').name('💾 Запомнить параметры');
+
 // ── Debug brush mode button ─────────────────────────────
 const debugParams = {
   brushDebugMode: false,
@@ -519,6 +661,23 @@ fBg.addColor(params, 'bgOuter').name('Края фона').onChange(hex => {
 fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v => {
   kaleidoscopeMaterial.uniforms.uVignette.value = v;
 });
+
+// Папка: Управление сохранением (localStorage)
+const fStorage = gui.addFolder('💾 Настройки и память (localStorage)');
+fStorage.add({ saveNow: () => saveCurrentSettings(true) }, 'saveNow').name('💾 Запомнить сейчас');
+fStorage.add(storageParams, 'autoSave').name('🔄 Автосохранение правок');
+fStorage.add({ resetNow: resetToDefaultSettings }, 'resetNow').name('↺ Сбросить к заводским');
+fStorage.close();
+
+// Listen for any controller adjustments to automatically save if autoSave is active
+gui.onFinishChange(() => {
+  if (!isRestoringSettings && storageParams.autoSave) {
+    saveCurrentSettings(false);
+  }
+});
+
+// Restore saved settings on startup if present in localStorage
+loadSavedSettings(true);
 
 // Resize Handler: maintains aspect ratio for both display shader and debug camera
 function handleResize() {
