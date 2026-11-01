@@ -23,7 +23,8 @@ const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFb
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
-  type: THREE.UnsignedByteType
+  type: THREE.UnsignedByteType,
+  samples: 4 // Hardware 4x MSAA anti-aliasing on FBO canvas
 });
 
 function setFboResolution(size) {

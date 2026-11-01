@@ -174,18 +174,20 @@ export class FishRibbon {
     }
 
     // ── Immutable Path History Ring Buffers (Anchored to world space) ──
+    const historyCap = this.segments + 2;
     this._historyA = [];
     this._historyB = [];
-    this._historyWidthsA = new Float32Array(this.segments);
-    this._historyWidthsB = new Float32Array(this.segments);
+    this._historyWidthsA = new Float32Array(historyCap);
+    this._historyWidthsB = new Float32Array(historyCap);
     this._accumDistA = 0.0;
     this._accumDistB = 0.0;
     this._prevRecordedPosA = this.headA.clone();
     this._prevRecordedPosB = this.headB.clone();
 
-    for (let i = 0; i < this.segments; i++) {
-      this._historyA.push(this.spine[i].clone());
-      this._historyB.push(this.splitSpine[i].clone());
+    for (let i = 0; i < historyCap; i++) {
+      const idx = Math.min(i, this.segments - 1);
+      this._historyA.push(this.spine[idx].clone());
+      this._historyB.push(this.splitSpine[idx].clone());
     }
     this._historyWidthsA.fill(initW);
     this._historyWidthsB.fill(initW);
@@ -212,6 +214,7 @@ export class FishRibbon {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 1;
     this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 1;
 
     // Build Split Branch InstancedMesh
     this.splitGeometry = this._createRibbonGeometry(this.segments);
@@ -220,6 +223,8 @@ export class FishRibbon {
     this.splitMesh.count = 0;
     this.splitMesh.frustumCulled = false;
     this.splitMesh.visible = false;
+    this.splitMesh.renderOrder = 2;
+    this.splitMesh.position.z = 0.0005; // deterministic tiny z offset prevents z-fighting and shimmering
 
     // Set identity matrix for the initial single instance
     const dummy = new THREE.Object3D();
@@ -759,15 +764,15 @@ export class FishRibbon {
       this._accumDistA += dStepA;
 
       const safeSegDist = Math.max(0.001, segDist);
+      const historyCap = this._historyA.length;
       let itersA = 20;
       while (this._accumDistA >= safeSegDist && itersA-- > 0) {
-        this._accumDistA -= safeSegDist;
-        const backDist = this._accumDistA;
-        const t = (dStepA > 0.00001) ? THREE.MathUtils.clamp(1.0 - backDist / dStepA, 0.0, 1.0) : 1.0;
+        const t = THREE.MathUtils.clamp(safeSegDist / Math.max(0.00001, this._accumDistA), 0.0, 1.0);
         this._tmpHead.lerpVectors(this._prevRecordedPosA, this.headA, t);
         this._prevRecordedPosA.copy(this._tmpHead);
+        this._accumDistA -= safeSegDist;
 
-        for (let i = this.segments - 1; i > 0; i--) {
+        for (let i = historyCap - 1; i > 0; i--) {
           this._historyA[i].copy(this._historyA[i - 1]);
           this._historyWidthsA[i] = this._historyWidthsA[i - 1];
         }
@@ -782,13 +787,12 @@ export class FishRibbon {
 
       let itersB = 20;
       while (this._accumDistB >= safeSegDist && itersB-- > 0) {
-        this._accumDistB -= safeSegDist;
-        const backDist = this._accumDistB;
-        const t = (dStepB > 0.00001) ? THREE.MathUtils.clamp(1.0 - backDist / dStepB, 0.0, 1.0) : 1.0;
+        const t = THREE.MathUtils.clamp(safeSegDist / Math.max(0.00001, this._accumDistB), 0.0, 1.0);
         this._tmpHead.lerpVectors(this._prevRecordedPosB, this.headB, t);
         this._prevRecordedPosB.copy(this._tmpHead);
+        this._accumDistB -= safeSegDist;
 
-        for (let i = this.segments - 1; i > 0; i--) {
+        for (let i = historyCap - 1; i > 0; i--) {
           this._historyB[i].copy(this._historyB[i - 1]);
           this._historyWidthsB[i] = this._historyWidthsB[i - 1];
         }
@@ -808,13 +812,20 @@ export class FishRibbon {
         }
       }
 
-      // Populate spine and widths buffers:
-      // index 0 = active leading head; indices 1..N-1 = frozen immutable path points on canvas
+      // Continuous sub-segment sliding phase [0, 1) along the historical polyline
+      const fracA = THREE.MathUtils.clamp(this._accumDistA / safeSegDist, 0.0, 1.0);
+      const fracB = THREE.MathUtils.clamp(this._accumDistB / safeSegDist, 0.0, 1.0);
+
+      // Vertebra 0: Active leading head tip
       this.spine[0].copy(this.headA);
       this.widths[0] = headWidthA;
+
+      // Vertebrae 1..N-1: Continuous sliding interpolation along the fixed path trail.
+      // Eliminates integer step quantization / inchworm teleportation!
+      // Each vertebra smoothly slides between historical points without ever snapping.
       for (let i = 1; i < this.segments; i++) {
-        this.spine[i].copy(this._historyA[i - 1]);
-        this.widths[i] = this._historyWidthsA[i - 1];
+        this.spine[i].lerpVectors(this._historyA[i], this._historyA[i - 1], fracA);
+        this.widths[i] = THREE.MathUtils.lerp(this._historyWidthsA[i], this._historyWidthsA[i - 1], fracA);
       }
 
       this.splitSpine[0].copy(this.headB);
@@ -831,27 +842,37 @@ export class FishRibbon {
       }
 
       for (let i = 1; i < this.segments; i++) {
-        this.splitSpine[i].copy(this._historyB[i - 1]);
+        this.splitSpine[i].lerpVectors(this._historyB[i], this._historyB[i - 1], fracB);
 
         if (!isSplitActive) {
           this.splitWidths[i] = 0.0;
         } else {
           const histIdx = i - 1;
+          const wSample = THREE.MathUtils.lerp(this._historyWidthsB[i], this._historyWidthsB[i - 1], fracB);
+
           // Segments in front of the merge junction: width = 0 (stroke A is already drawing this!)
           if (this.splitState === 'DRAINING' && histIdx < startDrain) {
             this.splitWidths[i] = 0.0;
+          }
+          // Smooth taper at the merge junction (tail melting seamlessly into main stroke)
+          else if (this.splitState === 'DRAINING' && histIdx <= startDrain + 2) {
+            const tDrain = (histIdx - startDrain + 1) / 4.0;
+            const smoothTDrain = tDrain * tDrain * (3.0 - 2.0 * tDrain);
+            this.splitWidths[i] = wSample * smoothTDrain;
           }
           // Segments before the split occurred: width = 0
           else if (histIdx >= endFork) {
             this.splitWidths[i] = 0.0;
           }
-          // The junction point where the tail meets the main branch smoothly tapers into the parent branch:
-          else if (this.splitState === 'DRAINING' && histIdx === startDrain) {
-            this.splitWidths[i] = this._historyWidthsB[histIdx] * 0.5;
+          // Smooth taper at the fork root (where secondary branch organically buds out of main stem)
+          else if (histIdx >= endFork - 2) {
+            const tFork = (endFork - histIdx) / 3.0;
+            const smoothTFork = tFork * tFork * (3.0 - 2.0 * tFork);
+            this.splitWidths[i] = wSample * smoothTFork;
           }
           // Active fork body: full recorded width
           else {
-            this.splitWidths[i] = this._historyWidthsB[histIdx];
+            this.splitWidths[i] = wSample;
           }
         }
       }
@@ -933,7 +954,14 @@ export class FishRibbon {
     if (this.splitState !== 'CLOSED') {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
-      this.splitMaterial.uniforms.uOpacity.value = 0.92;
+
+      // Smooth fade-in/out near fork opening/closing to eliminate color fighting/flickering
+      let forkAlpha = 1.0;
+      if (this.splitState === 'OPENING' || this.splitState === 'CLOSING') {
+        const normS = THREE.MathUtils.clamp(this.splitProgress / 0.18, 0.0, 1.0);
+        forkAlpha = normS * normS * (3.0 - 2.0 * normS);
+      }
+      this.splitMaterial.uniforms.uOpacity.value = 0.92 * forkAlpha;
       this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline);
     } else {
       this.splitMesh.visible = false;
