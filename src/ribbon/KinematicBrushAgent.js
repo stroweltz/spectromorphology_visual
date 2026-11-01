@@ -21,11 +21,11 @@ export class KinematicBrushAgent {
    */
   constructor(options = {}) {
     this.speed = options.speed ?? 1.2;
-    this.orbitSpeed = options.orbitSpeed ?? 0.4;
+    this.orbitSpeed = options.orbitSpeed ?? 0.2;
     this.pathRadius = options.pathRadius ?? 0.42;
     this.phaseOffset = options.phaseOffset ?? 0.0;
     this.maxBoundaryRadius = options.maxBoundaryRadius ?? 0.58;
-    this.minTurnRadius = options.minTurnRadius ?? 0.12;
+    this.minTurnRadius = options.minTurnRadius ?? 0.08;
 
     // Speed Dynamics & Drift
     this.randomSpeedEnabled = options.randomSpeedEnabled ?? true;

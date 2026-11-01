@@ -4,7 +4,7 @@ export function createKaleidoscopeMaterial() {
   return new THREE.ShaderMaterial({
     uniforms: {
       tDiffuse: { value: null },
-      uSectors: { value: 12.0 },         // kept for GUI / debug overlay reads
+      uSectors: { value: 8.0 },         // kept for GUI / debug overlay reads
       uRotation: { value: 0.0 },
       uZoom: { value: 1.0 },
       uCenter: { value: new THREE.Vector2(0.5, 0.5) },

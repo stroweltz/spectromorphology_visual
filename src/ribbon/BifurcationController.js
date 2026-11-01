@@ -19,7 +19,7 @@ export class BifurcationController {
 
     // ── Dynamic Stroke Thickness Modulation ──
     this.maxWidth = options.maxWidth ?? 0.08;
-    this.widthLimit = options.widthLimit ?? 0.08;
+    this.widthLimit = options.widthLimit ?? 0.032;
     this.widthSpeed = options.widthSpeed ?? 0.22;
     this.widthPhase = options.widthPhase ?? (this.phaseOffset + Math.PI * 0.5);
 
@@ -32,8 +32,8 @@ export class BifurcationController {
     this.centerTaperRadius = options.centerTaperRadius ?? 0.35;
 
     // ── Spatial Sine Wave on Motion Path ──
-    this.waveFreq = options.waveFreq ?? 3.5;
-    this.waveAmp = options.waveAmp ?? 0.028;
+    this.waveFreq = options.waveFreq ?? 4.8;
+    this.waveAmp = options.waveAmp ?? 0.0384;
 
     // ── Bifurcation / Fork Configuration & State ──
     this.bifurcationEnabled = options.bifurcationEnabled ?? true;

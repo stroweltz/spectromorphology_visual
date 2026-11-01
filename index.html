@@ -542,13 +542,156 @@
         gap: 5px;
       }
     }
+
+    /* --- Floating Glassmorphism Fullscreen Trigger Button --- */
+    .fullscreen-btn {
+      position: fixed;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      right: 24px;
+      z-index: 990;
+      padding: 10px 18px;
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 9999px;
+      color: #f8fafc;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 15px rgba(99, 179, 237, 0.2);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                  background 0.2s ease,
+                  border-color 0.2s ease,
+                  box-shadow 0.2s ease,
+                  opacity 0.25s ease;
+    }
+    .fullscreen-btn:hover {
+      background: rgba(30, 41, 59, 0.88);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 179, 237, 0.3);
+    }
+    .fullscreen-btn:active {
+      transform: scale(0.93);
+      background: rgba(30, 41, 59, 0.95);
+      border-color: rgba(99, 179, 237, 0.6);
+    }
+    .fullscreen-btn .fullscreen-icon {
+      font-size: 16px;
+      line-height: 1;
+      display: inline-block;
+      transition: transform 0.25s ease;
+    }
+    .fullscreen-btn:hover .fullscreen-icon {
+      transform: scale(1.15);
+    }
+
+    /* On mobile (<= 768px): position fullscreen button on the left, parameters button on the right */
+    @media (max-width: 768px) {
+      .fullscreen-btn {
+        right: auto;
+        left: calc(16px + env(safe-area-inset-left, 0px));
+        padding: 10px 16px;
+        font-size: 13px;
+      }
+      body.gui-drawer-open .fullscreen-btn {
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.85);
+      }
+    }
+
+    /* --- Zen Mode (Fullscreen without UI clutter) --- */
+    body.zen-mode #hud,
+    body.zen-mode .gui-toggle-btn,
+    body.zen-mode .fullscreen-btn,
+    body.zen-mode .gui-backdrop,
+    body.zen-mode .lil-gui {
+      opacity: 0 !important;
+      pointer-events: none !important;
+      transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s ease !important;
+    }
+
+    body.zen-mode #hud {
+      transform: translateY(-16px);
+    }
+
+    body.zen-mode .gui-toggle-btn,
+    body.zen-mode .fullscreen-btn {
+      transform: scale(0.8);
+    }
+
+    body.zen-mode #hud-toast {
+      display: none !important;
+    }
+
+    body.zen-mode.zen-idle {
+      cursor: none;
+    }
+
+    /* Floating Exit Button in Zen Mode */
+    .zen-exit-btn {
+      position: fixed;
+      top: calc(20px + env(safe-area-inset-top, 0px));
+      right: calc(20px + env(safe-area-inset-right, 0px));
+      z-index: 9999;
+      padding: 9px 16px;
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 9999px;
+      color: #e2e8f0;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-8px);
+      transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .zen-exit-btn:hover {
+      background: rgba(30, 41, 59, 0.9);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+    }
+    .zen-exit-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* When in zen-mode and user interacts, smoothly show exit button */
+    body.zen-mode:not(.zen-idle) .zen-exit-btn {
+      opacity: 0.88;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    body.zen-mode:not(.zen-idle) .zen-exit-btn:hover {
+      opacity: 1;
+    }
+
   </style>
 </head>
 <body>
   <!-- HUD: Title, Description, Status and Live Telemetry -->
   <div id="hud">
     <h1>Spectromorphology</h1>
-    <p id="hud-subtitle">Мандала бумажных мазков · Рыбья кинематика <span style="opacity:0.6;font-size:10.5px">v1.1.1</span></p>
+    <p id="hud-subtitle">Мандала бумажных мазков · Рыбья кинематика <span style="opacity:0.6;font-size:10.5px">v1.2.0</span></p>
     <div id="hud-debug">
       🖌 РЕЖИМ КИСТИ (DEBUG): ОДИНАРНАЯ ТРАЕКТОРИЯ И ОСИ СИММЕТРИИ
     </div>
@@ -574,6 +717,19 @@
   <button id="gui-toggle-btn" class="gui-toggle-btn" type="button" aria-label="Открыть параметры визуализатора" aria-expanded="false">
     <span class="gui-toggle-icon" aria-hidden="true">⚙️</span>
     <span class="gui-toggle-label">Параметры</span>
+  </button>
+
+
+  <!-- Floating Glassmorphism Fullscreen Trigger Button -->
+  <button id="fullscreen-btn" class="fullscreen-btn" type="button" aria-label="Полноэкранный режим без лишнего (F)" title="Полноэкранный режим без лишнего (F)">
+    <span class="fullscreen-icon" aria-hidden="true">⛶</span>
+    <span class="fullscreen-label">Фулскрин</span>
+  </button>
+
+  <!-- Zen Mode Floating Exit Button (Appears on interaction in fullscreen) -->
+  <button id="zen-exit-btn" class="zen-exit-btn" type="button" aria-label="Выйти из полноэкранного режима" title="Выйти (Esc)">
+    <span aria-hidden="true">✕</span>
+    <span>Выйти из фулскрина</span>
   </button>
 
   <!-- Mobile Drawer Backdrop Overlay -->

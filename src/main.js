@@ -94,21 +94,22 @@ strokeCamera.position.z = 1;
 const ribbons = [
   // Layer 1: Crimson / Ruby with Amber split (mid-outer territory)
   new FishRibbon({
+    minTurnRadius: 0.08,
     color: 0xef2353,
     splitColor: 0xffaa00,
     segments: 100,
     maxWidth: 0.08,
-    widthLimit: 0.08,            // Верхний потолок толщины
+    widthLimit: 0.032,            // Верхний потолок толщины (4.0 * 0.008)
     widthSpeed: 0.22,
     widthSpeedMult: 0.72,        // slower breathing rate
     widthPhase: 0.5 * Math.PI,
     widthHarmonicPhase: 1.2,
     speed: 1.1,
-    waveFreq: 3.5,
-    waveAmp: 0.028,              // Фиксированная синусоида вдоль пути
+    waveFreq: 4.8,
+    waveAmp: 0.0384,              // Фиксированная синусоида вдоль пути
     pathRadius: 0.42,
     phaseOffset: 0.0,
-    orbitSpeed: 0.35,
+    orbitSpeed: 0.2,
     speedMultiplier: 0.82,       // slower travel
     speedWanderFreq: 0.22,
     speedSeed: 14.2,
@@ -127,21 +128,22 @@ const ribbons = [
   }),
   // Layer 2: Deep Cyan / Electric Teal with Emerald split (wide outer sweep)
   new FishRibbon({
+    minTurnRadius: 0.08,
     color: 0x00d2d3,
     splitColor: 0x10ac84,
     segments: 100,
     maxWidth: 0.075,
-    widthLimit: 0.08,            // Верхний потолок толщины
+    widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
     widthSpeedMult: 1.38,        // faster, energetic breathing rate
     widthPhase: 0.5 * Math.PI + Math.PI * 0.66,
     widthHarmonicPhase: 3.7,
     speed: 1.25,
-    waveFreq: 3.8,
-    waveAmp: 0.026,              // Фиксированная синусоида вдоль пути
+    waveFreq: 4.8,
+    waveAmp: 0.0384,              // Фиксированная синусоида вдоль пути
     pathRadius: 0.52,
     phaseOffset: Math.PI * 0.66,
-    orbitSpeed: 0.42,
+    orbitSpeed: 0.2,
     speedMultiplier: 1.26,       // faster, agile travel
     speedWanderFreq: 0.36,
     speedSeed: 58.6,
@@ -160,21 +162,22 @@ const ribbons = [
   }),
   // Layer 3: Royal Violet / Magenta with Coral split (inner-mid core territory)
   new FishRibbon({
+    minTurnRadius: 0.08,
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
     segments: 100,
     maxWidth: 0.07,
-    widthLimit: 0.08,            // Верхний потолок толщины
+    widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
     widthSpeedMult: 0.96,        // intermediate breathing rate
     widthPhase: 0.5 * Math.PI + Math.PI * 1.33,
     widthHarmonicPhase: 5.1,
     speed: 0.95,
-    waveFreq: 3.2,
-    waveAmp: 0.030,              // Фиксированная синусоида вдоль пути
+    waveFreq: 4.8,
+    waveAmp: 0.0384,              // Фиксированная синусоида вдоль пути
     pathRadius: 0.30,
     phaseOffset: Math.PI * 1.33,
-    orbitSpeed: 0.3,
+    orbitSpeed: 0.2,
     speedMultiplier: 1.02,       // intermediate travel
     speedWanderFreq: 0.28,
     speedSeed: 91.4,
@@ -234,7 +237,7 @@ let brushDebugMode = false;
 // 6. Interactive GUI Controls
 const params = {
   // Kaleidoscope / Mandala
-  sectors: 12,
+  sectors: 8,
   mirror: true,
   autoRotate: false,
   rotationSpeed: 0.15,
@@ -243,13 +246,13 @@ const params = {
 
   // Brush Motion & Trail Kinematics
   motionSpeed: 1.1,
-  orbitSpeed: 0.35,
+  orbitSpeed: 0.2,
   boundaryRadius: 0.58,
-  minTurnRadius: 0.12,
+  minTurnRadius: 0.08,
   fixedPathTrail: true,         // Фиксированный след: где нарисовано, там и лежит
   trailLength: 1.5,             // Длина шлейфа мазка (0.5..3.5)
-  waveAmplitude: 3.5,           // Размах синусоиды [0..10] (3.5 = 0.028)
-  waveFrequency: 3.5,           // Частота синусоиды вдоль пути
+  waveAmplitude: 4.8,           // Размах синусоиды [0..10] (3.5 = 0.028)
+  waveFrequency: 4.8,           // Частота синусоиды вдоль пути
   randomSpeedMode: true,        // Режим независимых случайных скоростей
   speedVariance: 6.5,           // Разброс случайных скоростей [0..10]
   dynamicSpeedDrift: true,      // Органический дрейф скорости во времени
@@ -266,7 +269,7 @@ const params = {
   splitDuration: 5.5,           // Длительность раздвоения (сек)
 
   // Paper Texture & Width Dynamics (Человеческая шкала 0..10)
-  strokeWidthLimit: 10.0,       // Потолок толщины [0..10] (10.0 = полная кисть 0.080)
+  strokeWidthLimit: 4.0,       // Потолок толщины [0..10] (10.0 = полная кисть 0.080)
   roughness: 3.5,               // Рваный край [0..10] (3.5 = 0.35)
   fiberIntensity: 3.5,          // Волокна бумаги [0..10] (3.5 = 0.28)
   widthSpeed: 2.8,              // Скорость изменения толщины [0..10] (2.8 = 0.22)
@@ -462,12 +465,118 @@ gui.domElement.addEventListener('touchend', () => {
   touchDeltaY = 0;
 }, { passive: true });
 
-// Close on Escape key
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.body.classList.contains('gui-drawer-open')) {
+// ── Fullscreen & Zen Mode (Zero screen clutter) ─────────────────
+let isZenMode = false;
+let zenIdleTimeout = null;
+
+const fullscreenBtn = document.getElementById('fullscreen-btn');
+const zenExitBtn = document.getElementById('zen-exit-btn');
+
+function resetZenIdleTimer() {
+  if (!isZenMode) return;
+  document.body.classList.remove('zen-idle');
+  if (zenIdleTimeout) clearTimeout(zenIdleTimeout);
+  zenIdleTimeout = setTimeout(() => {
+    if (isZenMode) {
+      document.body.classList.add('zen-idle');
+    }
+  }, 2500);
+}
+
+function enterFullscreenZenMode() {
+  isZenMode = true;
+  document.body.classList.add('zen-mode');
+  document.body.classList.remove('zen-idle');
+
+  // Close mobile drawer if it was open
+  if (typeof closeMobileDrawer === 'function') {
     closeMobileDrawer();
   }
+
+  // Request native browser fullscreen if supported
+  const el = document.documentElement;
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {});
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  }
+
+  resetZenIdleTimer();
+}
+
+function exitFullscreenZenMode() {
+  isZenMode = false;
+  document.body.classList.remove('zen-mode', 'zen-idle');
+  if (zenIdleTimeout) clearTimeout(zenIdleTimeout);
+
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    }
+  }
+}
+
+function toggleFullscreenZenMode(forceState) {
+  const target = (typeof forceState === 'boolean') ? forceState : !isZenMode;
+  if (target) {
+    enterFullscreenZenMode();
+  } else {
+    exitFullscreenZenMode();
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', () => toggleFullscreenZenMode());
+}
+if (zenExitBtn) {
+  zenExitBtn.addEventListener('click', () => exitFullscreenZenMode());
+}
+
+['mousemove', 'mousedown', 'touchstart', 'touchmove'].forEach(evt => {
+  window.addEventListener(evt, resetZenIdleTimer, { passive: true });
 });
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && isZenMode) {
+    exitFullscreenZenMode();
+  }
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  if (!document.webkitFullscreenElement && isZenMode) {
+    exitFullscreenZenMode();
+  }
+});
+
+// Double click canvas to toggle fullscreen zen mode
+const canvasWrapper = document.getElementById('canvas-container');
+if (canvasWrapper) {
+  canvasWrapper.addEventListener('dblclick', () => {
+    toggleFullscreenZenMode();
+  });
+}
+
+// Close on Escape key & Toggle Fullscreen on 'F'
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (isZenMode) {
+      exitFullscreenZenMode();
+      return;
+    }
+    if (document.body.classList.contains('gui-drawer-open')) {
+      closeMobileDrawer();
+      return;
+    }
+  }
+  if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    toggleFullscreenZenMode();
+  }
+});
+
 
 // Close drawer if window is resized above 768px
 window.addEventListener('resize', () => {
@@ -482,7 +591,7 @@ if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has(
 }
 
 // ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1';
+const STORAGE_KEY = 'spectromorphology_user_settings_v1_2';
 
 function showToast(message, isError = false) {
   const toast = document.getElementById('hud-toast');
@@ -622,7 +731,11 @@ function resetToDefaultSettings() {
   }
 }
 
-// ── Top Action: Save Button ─────────────────────────────
+// ── Top Action: Fullscreen & Save Buttons ────────────────
+gui.add({
+  toggleFullscreen: () => toggleFullscreenZenMode()
+}, 'toggleFullscreen').name('🖥️ Фулскрин (Без интерфейса)');
+
 gui.add({
   saveNow: () => saveCurrentSettings(true)
 }, 'saveNow').name('💾 Запомнить параметры');
