@@ -100,8 +100,8 @@ const ribbons = [
   // Layer 1: Crimson / Ruby with Amber split (mid-outer territory)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0xef2353,
-    splitColor: 0xffaa00,
+    color: 0x00f3ff,
+    splitColor: 0xff0055,
     segments: 100,
     maxWidth: 0.08,
     widthLimit: 0.032,            // Верхний потолок толщины (4.0 * 0.008)
@@ -134,8 +134,8 @@ const ribbons = [
   // Layer 2: Deep Cyan / Electric Teal with Emerald split (wide outer sweep)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0x00d2d3,
-    splitColor: 0x10ac84,
+    color: 0x7000ff,
+    splitColor: 0x00ff9d,
     segments: 100,
     maxWidth: 0.075,
     widthLimit: 0.032,            // Верхний потолок толщины
@@ -168,8 +168,8 @@ const ribbons = [
   // Layer 3: Royal Violet / Magenta with Coral split (inner-mid core territory)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0x9b59b6,
-    splitColor: 0xff6b6b,
+    color: 0x120038,
+    splitColor: 0x005580,
     segments: 100,
     maxWidth: 0.07,
     widthLimit: 0.032,            // Верхний потолок толщины
@@ -224,10 +224,10 @@ const bgPresets = {
     bgMode: 'nebula',
     bgOuter: '#030406',
     bgInner: '#0c1527',
-    bgAccent: '#160a22',
-    nebulaIntensity: 5.5,
-    nebulaSpeed: 2.5,
-    nebulaScale: 1.4,
+    bgAccent: '#36093d',
+    nebulaIntensity: 6.8,
+    nebulaSpeed: 2.4,
+    nebulaScale: 1.6,
     vignette: 0.75
   },
   '🍷 Винный Обсидиан': {
@@ -372,20 +372,20 @@ const params = {
   widthAsymmetry: 6.5,          // Степень асинхронности [0..10]
 
   // Color Themes & Harmonized Palette
-  colorTheme: '🌈 Classic Neon / True Obsidian',
+  colorTheme: '⚡ Blade Runner 2049 (Неоновый нуар)',
   toneMappingMode: 'agx',
-  layer1Color: '#ef2353',
-  layer1Split: '#ffaa00',
-  layer2Color: '#00d2d3',
-  layer2Split: '#10ac84',
-  layer3Color: '#9b59b6',
-  layer3Split: '#ff6b6b',
+  layer1Color: '#00f3ff',
+  layer1Split: '#ff0055',
+  layer2Color: '#7000ff',
+  layer2Split: '#00ff9d',
+  layer3Color: '#120038',
+  layer3Split: '#005580',
 
   // Background & Atmosphere
-  bgMode: 'radial',
+  bgMode: 'nebula',
   bgPreset: '🌑 Монохромный Графит',
-  bgInner: '#0c0e14',
-  bgOuter: '#000000',
+  bgInner: '#0b2647',
+  bgOuter: '#03050c',
   bgAccent: '#160a22',
   nebulaIntensity: 5.5,
   nebulaSpeed: 2.5,
@@ -483,13 +483,21 @@ function applyColorTheme(themeKey) {
   params.colorTheme = themeKey;
   params.bgOuter = t.bgOuter;
   params.bgInner = t.bgInner;
+  if (t.bgAccent) params.bgAccent = t.bgAccent;
   params.vignette = t.vignette;
-  params.bgMode = t.bgMode;
+  params.bgMode = t.bgMode || 'nebula';
+  if (t.nebulaIntensity !== undefined) params.nebulaIntensity = t.nebulaIntensity;
+  if (t.nebulaScale !== undefined) params.nebulaScale = t.nebulaScale;
+  if (t.nebulaSpeed !== undefined) params.nebulaSpeed = t.nebulaSpeed;
 
-  applyBgMode(t.bgMode);
-  kaleidoscopeMaterial.uniforms.uBgOuter.value.set(t.bgOuter);
-  kaleidoscopeMaterial.uniforms.uBgInner.value.set(t.bgInner);
-  kaleidoscopeMaterial.uniforms.uVignette.value = t.vignette;
+  applyBgMode(params.bgMode);
+  kaleidoscopeMaterial.uniforms.uBgOuter.value.set(params.bgOuter);
+  kaleidoscopeMaterial.uniforms.uBgInner.value.set(params.bgInner);
+  if (params.bgAccent) kaleidoscopeMaterial.uniforms.uBgAccent.value.set(params.bgAccent);
+  if (params.nebulaIntensity !== undefined) kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = params.nebulaIntensity * 0.10;
+  if (params.nebulaScale !== undefined) kaleidoscopeMaterial.uniforms.uNebulaScale.value = params.nebulaScale;
+  if (params.nebulaSpeed !== undefined) kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = params.nebulaSpeed * 0.10;
+  kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
 
   t.layers.forEach((l, idx) => {
     if (ribbons[idx]) {
@@ -513,8 +521,12 @@ function applyColorTheme(themeKey) {
   if (themeCtrl) themeCtrl.updateDisplay();
   if (bgOuterCtrl) bgOuterCtrl.updateDisplay();
   if (bgInnerCtrl) bgInnerCtrl.updateDisplay();
+  if (bgAccentCtrl) bgAccentCtrl.updateDisplay();
   if (vigCtrl) vigCtrl.updateDisplay();
   if (bgModeCtrl) bgModeCtrl.updateDisplay();
+  if (intensityCtrl) intensityCtrl.updateDisplay();
+  if (speedCtrl) speedCtrl.updateDisplay();
+  if (scaleCtrl) scaleCtrl.updateDisplay();
   if (l1ColCtrl) l1ColCtrl.updateDisplay();
   if (l1SplitCtrl) l1SplitCtrl.updateDisplay();
   if (l2ColCtrl) l2ColCtrl.updateDisplay();
@@ -762,7 +774,7 @@ if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has(
 }
 
 // ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1_4_themes';
+const STORAGE_KEY = 'spectromorphology_user_settings_v1_5_gradients';
 
 function showToast(message, isError = false) {
   const toast = document.getElementById('hud-toast');
