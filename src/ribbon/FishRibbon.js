@@ -148,7 +148,9 @@ export class FishRibbon {
     this.audioSteerMult = 1.0;
     this.audioExtraAngular = 0.0;
 
-    // Material
+    // Colors and Materials
+    this.baseColor = new THREE.Color(options.color || 0xef2353);
+    this.secondaryColor = new THREE.Color(options.splitColor || options.color || 0xffaa00);
     this.material = createPaperMaterial(options.color || 0xff385c);
     this.splitMaterial = createPaperMaterial(options.splitColor || options.color || 0xff8533);
 
@@ -314,6 +316,8 @@ export class FishRibbon {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
     geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2).setUsage(THREE.StaticDrawUsage));
+    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geom.setAttribute('aWidth', new THREE.BufferAttribute(new Float32Array(vertexCount), 1).setUsage(THREE.DynamicDrawUsage));
     geom.setIndex(indices);
     return geom;
   }
@@ -952,22 +956,26 @@ export class FishRibbon {
     }
 
     // ── 6. Update Main Ribbon Mesh Vertices ──
-    this._updateMeshGeometry(this.geometry, this.spine, this._lateralOffsetsA, this.widths, this._centerline);
+    this._updateMeshGeometry(this.geometry, this.spine, this._lateralOffsetsA, this.widths, this._centerline, false, safeSegDist, 0.0);
 
     // ── 7. Update Split Branch Ribbon Mesh Vertices ──
     if (this.splitState !== 'CLOSED') {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
       this.splitMaterial.uniforms.uOpacity.value = 0.92;
-      this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline);
+      this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline, true, safeSegDist, fracB);
     } else {
       this.splitMesh.visible = false;
     }
   }
 
-  _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline) {
+  _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline, isSplitBranch = false, segDist = 0.018, frac = 0.0) {
     const posAttr = geometry.attributes.position;
+    const colAttr = geometry.attributes.color;
+    const widthAttr = geometry.attributes.aWidth;
     const positions = posAttr.array;
+    const colors = colAttr ? colAttr.array : null;
+    const widths = widthAttr ? widthAttr.array : null;
     const segs = this.segments;
 
     // Pass 1: Compute continuous undulating centerline positions
@@ -994,6 +1002,9 @@ export class FishRibbon {
       const c = centerline[i];
       c.copy(curr).addScaledVector(this._tmpNormal, lateralOffsets[i]);
     }
+
+    // Color gradient setup for split branch: 5-segment smooth transition
+    const blendDist = segDist * 5.0;
 
     // Pass 2: Extrude ribbon vertices perpendicular to the undulating centerline
     for (let i = 0; i < segs; i++) {
@@ -1038,6 +1049,7 @@ export class FishRibbon {
       }
 
       const halfWidth = (vertebraWidth * 0.5) * headTaper * tailTaper;
+      const actualWidth = halfWidth * 2.0;
 
       // Left / right vertices along true normal
       this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);
@@ -1052,8 +1064,52 @@ export class FishRibbon {
       positions[(vIdx + 1) * 3 + 0] = this._tmpRight.x;
       positions[(vIdx + 1) * 3 + 1] = this._tmpRight.y;
       positions[(vIdx + 1) * 3 + 2] = 0.0;
+
+      // Write aWidth (for hardware hairline roughness attenuation)
+      if (widths) {
+        widths[vIdx] = actualWidth;
+        widths[vIdx + 1] = actualWidth;
+      }
+
+      // Write vertex colors (seamless organic gradient)
+      if (colors) {
+        let r = this.baseColor.r;
+        let g = this.baseColor.g;
+        let b = this.baseColor.b;
+
+        if (isSplitBranch) {
+          const dBehind = (i - frac) * segDist;
+          let factor = 1.0;
+
+          // Fork root: smoothly blend from baseColor into secondaryColor
+          if (dBehind >= this.splitDistSinceStart - blendDist) {
+            const t = THREE.MathUtils.clamp((this.splitDistSinceStart - dBehind) / blendDist, 0.0, 1.0);
+            factor = Math.min(factor, t * t * (3.0 - 2.0 * t));
+          }
+
+          // Merge junction (DRAINING): smoothly blend from secondaryColor back into baseColor
+          if (this.splitState === 'DRAINING' && dBehind <= this.splitDrainDist + blendDist) {
+            const t = THREE.MathUtils.clamp((dBehind - this.splitDrainDist) / blendDist, 0.0, 1.0);
+            factor = Math.min(factor, t * t * (3.0 - 2.0 * t));
+          }
+
+          r = THREE.MathUtils.lerp(this.baseColor.r, this.secondaryColor.r, factor);
+          g = THREE.MathUtils.lerp(this.baseColor.g, this.secondaryColor.g, factor);
+          b = THREE.MathUtils.lerp(this.baseColor.b, this.secondaryColor.b, factor);
+        }
+
+        colors[vIdx * 3 + 0] = r;
+        colors[vIdx * 3 + 1] = g;
+        colors[vIdx * 3 + 2] = b;
+
+        colors[(vIdx + 1) * 3 + 0] = r;
+        colors[(vIdx + 1) * 3 + 1] = g;
+        colors[(vIdx + 1) * 3 + 2] = b;
+      }
     }
 
     posAttr.needsUpdate = true;
+    if (widthAttr) widthAttr.needsUpdate = true;
+    if (colAttr) colAttr.needsUpdate = true;
   }
 }

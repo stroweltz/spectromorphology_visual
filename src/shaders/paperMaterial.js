@@ -14,12 +14,19 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       uTime: { value: 0.0 }
     },
     vertexShader: /* glsl */ `
+      attribute vec3 color;
+      attribute float aWidth;
+
       varying vec2 vUv;
       varying vec3 vPosition;
+      varying vec3 vColor;
+      varying float vWidth;
 
       void main() {
         vUv = uv;
         vPosition = position;
+        vColor = color;
+        vWidth = aWidth;
 
         vec4 transformed = vec4(position, 1.0);
 
@@ -36,6 +43,8 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       precision highp float;
       varying vec2 vUv;
       varying vec3 vPosition;
+      varying vec3 vColor;
+      varying float vWidth;
 
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -91,14 +100,19 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         // 1. Deckled / Torn Paper Edge
         // Solid core optimization: for the inner ~68% of the brush width, edgeProfile is
         // guaranteed to be well inside the solid boundary, so we skip the 4-octave fbm entirely!
+        // Also smoothly suppress edge roughness when stroke becomes a hairline (vWidth < 0.02)
+        // to prevent thin tapering wedges from breaking into fluttering sub-pixel noise dust!
+        float widthFactor = smoothstep(0.003, 0.025, vWidth);
+        float effectiveRoughness = uRoughness * widthFactor;
+
         float alphaEdge = 1.0;
-        float edgeCutThreshold = 0.82 - 0.5 * uRoughness;
+        float edgeCutThreshold = 0.82 - 0.5 * effectiveRoughness;
 
         vec2 paperCoord = vPosition.xy * 24.0;
 
-        if (distFromCenter >= edgeCutThreshold && uRoughness > 0.01) {
-          float edgeNoise = fbm(paperCoord) * uRoughness;
-          float edgeProfile = distFromCenter + (edgeNoise - 0.5 * uRoughness);
+        if (distFromCenter >= edgeCutThreshold && effectiveRoughness > 0.01) {
+          float edgeNoise = fbm(paperCoord) * effectiveRoughness;
+          float edgeProfile = distFromCenter + (edgeNoise - 0.5 * effectiveRoughness);
           alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
           if (alphaEdge <= 0.005) discard;
         }
@@ -115,7 +129,9 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         float pulpDensity = fbm2(paperCoord * 0.4);
         
         // 4. Color Shading (Pigment absorption + fiber darkening)
-        vec3 col = uColor;
+        // Uses smoothly interpolated vertex colors for organic branching gradients;
+        // falls back to uniform uColor if vertex color is absent.
+        vec3 col = (length(vColor) > 0.001) ? vColor : uColor;
         // Pigment settles more in denser pulp areas
         col = mix(col * 0.85, col * 1.15, pulpDensity);
         // Darken micro-fibers slightly
