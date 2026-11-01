@@ -47,7 +47,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setSize(width, height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMapping = THREE.NoToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accumulation
 container.appendChild(renderer.domElement);
@@ -100,8 +100,8 @@ const ribbons = [
   // Layer 1: Crimson / Ruby with Amber split (mid-outer territory)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0x00f3ff,
-    splitColor: 0xff0055,
+    color: 0xef2353,
+    splitColor: 0xffaa00,
     segments: 100,
     maxWidth: 0.08,
     widthLimit: 0.032,            // Верхний потолок толщины (4.0 * 0.008)
@@ -134,8 +134,8 @@ const ribbons = [
   // Layer 2: Deep Cyan / Electric Teal with Emerald split (wide outer sweep)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0x7000ff,
-    splitColor: 0x00ff9d,
+    color: 0x00d2d3,
+    splitColor: 0x10ac84,
     segments: 100,
     maxWidth: 0.075,
     widthLimit: 0.032,            // Верхний потолок толщины
@@ -168,8 +168,8 @@ const ribbons = [
   // Layer 3: Royal Violet / Magenta with Coral split (inner-mid core territory)
   new FishRibbon({
     minTurnRadius: 0.08,
-    color: 0x120038,
-    splitColor: 0x005580,
+    color: 0x9b59b6,
+    splitColor: 0xff6b6b,
     segments: 100,
     maxWidth: 0.07,
     widthLimit: 0.032,            // Верхний потолок толщины
@@ -224,10 +224,10 @@ const bgPresets = {
     bgMode: 'nebula',
     bgOuter: '#030406',
     bgInner: '#0c1527',
-    bgAccent: '#36093d',
-    nebulaIntensity: 6.8,
-    nebulaSpeed: 2.4,
-    nebulaScale: 1.6,
+    bgAccent: '#160a22',
+    nebulaIntensity: 5.5,
+    nebulaSpeed: 2.5,
+    nebulaScale: 1.4,
     vignette: 0.75
   },
   '🍷 Винный Обсидиан': {
@@ -372,20 +372,20 @@ const params = {
   widthAsymmetry: 6.5,          // Степень асинхронности [0..10]
 
   // Color Themes & Harmonized Palette
-  colorTheme: '⚡ Blade Runner 2049 (Неоновый нуар)',
-  toneMappingMode: 'agx',
-  layer1Color: '#00f3ff',
-  layer1Split: '#ff0055',
-  layer2Color: '#7000ff',
-  layer2Split: '#00ff9d',
-  layer3Color: '#120038',
-  layer3Split: '#005580',
+  colorTheme: '🌌 Авторский Оригинал (Полночный Индиго)',
+  toneMappingMode: 'none',
+  layer1Color: '#ef2353',
+  layer1Split: '#ffaa00',
+  layer2Color: '#00d2d3',
+  layer2Split: '#10ac84',
+  layer3Color: '#9b59b6',
+  layer3Split: '#ff6b6b',
 
   // Background & Atmosphere
   bgMode: 'nebula',
   bgPreset: '🌑 Монохромный Графит',
-  bgInner: '#0b2647',
-  bgOuter: '#03050c',
+  bgInner: '#0c1527',
+  bgOuter: '#030406',
   bgAccent: '#160a22',
   nebulaIntensity: 5.5,
   nebulaSpeed: 2.5,
@@ -516,6 +516,11 @@ function applyColorTheme(themeKey) {
   params.layer3Color = t.layers[2].color;
   params.layer3Split = t.layers[2].splitColor;
 
+  if (t.toneMappingMode) {
+    params.toneMappingMode = t.toneMappingMode;
+    renderer.toneMapping = (t.toneMappingMode === 'agx') ? THREE.AgXToneMapping : THREE.NoToneMapping;
+    if (typeof toneMappingCtrl !== 'undefined' && toneMappingCtrl) toneMappingCtrl.updateDisplay();
+  }
   if (themeDesc) themeDesc.text = t.archetype;
   if (descCtrl) descCtrl.updateDisplay();
   if (themeCtrl) themeCtrl.updateDisplay();
@@ -774,7 +779,7 @@ if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has(
 }
 
 // ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1_5_gradients';
+const STORAGE_KEY = 'spectromorphology_user_settings_v1_6_original';
 
 function showToast(message, isError = false) {
   const toast = document.getElementById('hud-toast');
@@ -989,7 +994,7 @@ themeCtrl = fTheme.add(params, 'colorTheme', Object.keys(COLOR_THEMES))
   .name('✨ Выбор палитры')
   .onChange(applyColorTheme);
 
-fTheme.add(params, 'toneMappingMode', {
+const toneMappingCtrl = fTheme.add(params, 'toneMappingMode', {
   'AgX Cinema (Мягкое свечение)': 'agx',
   'Без тонемаппинга (Прямой)': 'none'
 }).name('Тонемаппинг').onChange(v => {

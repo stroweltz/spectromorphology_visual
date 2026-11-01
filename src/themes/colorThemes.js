@@ -6,13 +6,29 @@ import * as THREE from 'three';
  * Engineered based on WebGL additive blending mathematics, Inigo Quilez cosine palettes,
  * and calibrated to prevent 'black crush' while providing rich, blurred, breathing
  * procedural ambient gradients (Nebula, Waves, Aurora) tuned specifically for each aesthetic.
- *
- * Includes:
- *  - 4 High-Energy / Psychedelic Acid VJ presets (Psytrance Trip, Classic RGB, UV Rave, Chroma Acid)
- *  - 8 Harmonized Artistic presets (Blade Runner, Kintsugi, Deep Sea, Solar Flare, Vaporwave, Lotus, Emerald, Cyber-Goth)
- *  - 1 Classic OLED Baseline preset
  */
 export const COLOR_THEMES = {
+  // ── 0. Изначальный авторский шедевр ─────────────────────────
+  '🌌 Авторский Оригинал (Полночный Индиго)': {
+    id: 'original',
+    title: '🌌 Авторский Оригинал (Полночный Индиго)',
+    archetype: 'Тот самый каноничный шедевр: глубокая индиго-небула и сочный спектр',
+    bgMode: 'nebula',
+    bgOuter: '#030406', // Ультраглубокий обсидиан
+    bgInner: '#0c1527', // Полночный бархатный индиго
+    bgAccent: '#160a22', // Глубокий сливовый акцент
+    nebulaIntensity: 5.5,
+    nebulaScale: 1.4,
+    nebulaSpeed: 2.5,
+    vignette: 0.75,
+    toneMappingMode: 'none', // Исходный чистый рендеринг без срезания насыщенности
+    layers: [
+      { color: '#ef2353', splitColor: '#ffaa00', name: 'Рубиновый алый / Янтарь (Ядро)' },
+      { color: '#00d2d3', splitColor: '#10ac84', name: 'Электрический циан / Изумруд (Середина)' },
+      { color: '#9b59b6', splitColor: '#ff6b6b', name: 'Королевский фиолет / Коралл (Орбита)' }
+    ]
+  },
+
   // ── 1. Psychedelic / Acid RGB / VJ Presets ──────────────────
   '🌈 Псайтранс ТРИП (100% Acid)': {
     id: 'psyacid',
@@ -26,6 +42,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.8,
     vignette: 0.70,
+    toneMappingMode: 'none',
     layers: [
       { color: '#00ff00', splitColor: '#ff00ff', name: 'Acid Green / Hot Magenta (Ядро)' },
       { color: '#00ffff', splitColor: '#ffff00', name: 'Electric Cyan / Acid Yellow (Середина)' },
@@ -44,6 +61,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.6,
     vignette: 0.72,
+    toneMappingMode: 'none',
     layers: [
       { color: '#ff007f', splitColor: '#a6ff00', name: 'UV Pink / Toxic Lime (Ядро)' },
       { color: '#7f00ff', splitColor: '#00ffe1', name: 'Deep Violet / Electric Aqua (Середина)' },
@@ -62,6 +80,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.7,
     nebulaSpeed: 2.4,
     vignette: 0.75,
+    toneMappingMode: 'none',
     layers: [
       { color: '#ffff00', splitColor: '#00ffaa', name: 'Solar Yellow / Spring Mint (Ядро)' },
       { color: '#ff00aa', splitColor: '#00aaff', name: 'Vivid Pink / Azure Blue (Середина)' },
@@ -80,6 +99,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.5,
     nebulaSpeed: 2.0,
     vignette: 0.75,
+    toneMappingMode: 'none',
     layers: [
       { color: '#ff0000', splitColor: '#ffff00', name: 'Pure Red / Pure Yellow (Ядро)' },
       { color: '#00ff00', splitColor: '#00ffff', name: 'Pure Green / Pure Cyan (Середина)' },
@@ -100,6 +120,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.4,
     vignette: 0.75,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#00f3ff', splitColor: '#ff0055', name: 'Голографический циан / Лазерная маджента' },
       { color: '#7000ff', splitColor: '#00ff9d', name: 'Ультрафиолет / Ядовитый ментол' },
@@ -118,6 +139,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.0,
     vignette: 0.80,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#d4af37', splitColor: '#f3e5ab', name: 'Сусальное золото / Эфирный свет' },
       { color: '#8c6239', splitColor: '#c5a059', name: 'Матовая медь / Старое золото' },
@@ -136,6 +158,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.7,
     nebulaSpeed: 2.2,
     vignette: 0.75,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#00ffcc', splitColor: '#70ff00', name: 'Бирюза / Кислотный неон' },
       { color: '#0088cc', splitColor: '#00ffd5', name: 'Морской аквамарин / Океан' },
@@ -154,6 +177,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.5,
     nebulaSpeed: 2.2,
     vignette: 0.80,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#ffdd00', splitColor: '#ffffff', name: 'Звездная плазма / Белый жар' },
       { color: '#ff5500', splitColor: '#ffaa00', name: 'Корональный огонь / Янтарь' },
@@ -172,6 +196,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.5,
     vignette: 0.75,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#ff71ce', splitColor: '#01cdfe', name: 'Майами-розовый / Электрик-циан' },
       { color: '#05ffa1', splitColor: '#b967ff', name: 'Радиоактивный ментол / Сирень' },
@@ -190,6 +215,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.0,
     vignette: 0.80,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#ff94c2', splitColor: '#ffe49e', name: 'Розовый лотос / Золотая сердцевина' },
       { color: '#d869a8', splitColor: '#f1a7c4', name: 'Дикая роза / Маджента' },
@@ -208,6 +234,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.6,
     nebulaSpeed: 2.2,
     vignette: 0.80,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#00ff88', splitColor: '#88ff00', name: 'Весенний неон / Токсичный лайм' },
       { color: '#00b87c', splitColor: '#52d6a4', name: 'Изумруд / Светящийся малахит' },
@@ -226,6 +253,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.7,
     nebulaSpeed: 2.0,
     vignette: 0.85,
+    toneMappingMode: 'agx',
     layers: [
       { color: '#ffffff', splitColor: '#e0e6ed', name: 'Алмазный белый / Платина' },
       { color: '#8a95a5', splitColor: '#b8c4d0', name: 'Хирургическая сталь / Алюминий' },
@@ -246,6 +274,7 @@ export const COLOR_THEMES = {
     nebulaScale: 1.5,
     nebulaSpeed: 2.0,
     vignette: 0.70,
+    toneMappingMode: 'none',
     layers: [
       { color: '#ff3b56', splitColor: '#ff9f43', name: 'Рубин / Янтарь (Ядро)' },
       { color: '#00d2d3', splitColor: '#10ac84', name: 'Циан / Изумруд (Середина)' },
