@@ -17,16 +17,43 @@ export class FishRibbon {
   constructor(options = {}) {
     this.segments = options.segments || 64;
     this.speed = options.speed || 1.2;
-    this.waveFreq = options.waveFreq || 4.5;
-    this.waveAmp = options.waveAmp || 0.07;
+    this.waveFreq = options.waveFreq || 3.5;
+    this.waveAmp = options.waveAmp ?? 0.028; // spatial wave amplitude along motion path (baked into trail)
     this.pathRadius = options.pathRadius || 0.42;
     this.phaseOffset = options.phaseOffset || 0.0;
     this.orbitSpeed = options.orbitSpeed || 0.4;
-    this.splitIntensity = options.splitIntensity || 0.0; // 0 = single ribbon, >0 = bifurcated split
+    this.splitIntensity = options.splitIntensity || 0.0; // legacy compatibility
+
+    // ── Path-Anchored Trail (Фиксация следа: где нарисовано, там и лежит) ──
+    // Eliminates lateral sliding, corner-cutting, and undulation.
+    // Points committed to history stay 100% frozen in world coordinates where the brush painted them.
+    this.fixedPathTrail = options.fixedPathTrail ?? true;
+
+    // ── Bifurcation / Fork into Two Heads (Раздвоение кисти на две головы) ──
+    // Probabilistically splits the brush into two distinct heads when stroke thickness dips below a threshold.
+    // The invisible central guide axis continues smoothly, while Head A and Head B diverge symmetrically
+    // with organic drift and independent movement, capped at the triggering thinness.
+    this.bifurcationEnabled = options.bifurcationEnabled ?? true;
+    this.splitThreshold = options.splitThreshold ?? 0.38;       // Trigger when head width <= maxWidth * splitThreshold
+    this.splitChance = options.splitChance ?? 0.75;             // Probability of triggering when dipping below threshold
+    this.splitSeparation = options.splitSeparation ?? 0.065;    // Base distance between twin heads in world units
+    this.splitDuration = options.splitDuration ?? 5.5;          // Base duration of split in seconds
+    this.splitOpenDuration = 1.3;                               // Seconds to fork apart smoothly
+    this.splitCloseDuration = 1.3;                              // Seconds to merge back smoothly
+    this.splitMinCooldown = options.splitMinCooldown ?? 7.0;    // Minimum seconds between split events
+    this.splitCooldown = 2.5 + (this.phaseOffset * 2.3) % 4.5;  // Stagger initial split opportunity per ribbon
+    this.splitState = 'CLOSED';                                 // 'CLOSED', 'OPENING', 'SUSTAINED', 'CLOSING'
+    this.splitProgress = 0.0;                                   // 0.0 = merged single brush, 1.0 = fully split
+    this.splitTimer = 0.0;
+    this.currentSplitDuration = this.splitDuration;
+    this.splitMaxCap = this.maxWidth;                           // Active upper width ceiling during bifurcation
+    this._wasAboveThreshold = true;
+    this.splitSeed = options.splitSeed ?? (Math.random() * 100.0);
 
     // ── Dynamic Stroke Thickness Modulation ──
     // Smoothly breathes between 0.0 and 0.08 over time
     this.maxWidth = options.maxWidth ?? 0.08;
+    this.widthLimit = options.widthLimit ?? 0.08; // Global/individual thickness limiter ceiling
     this.widthSpeed = options.widthSpeed ?? 0.22;
     this.widthPhase = options.widthPhase ?? (this.phaseOffset + Math.PI * 0.5);
 
@@ -36,26 +63,59 @@ export class FishRibbon {
     this.centerTaperStrength = options.centerTaperStrength ?? 0.85; // 0 = disabled, 1 = tapers to 0 at origin
     this.centerTaperRadius = options.centerTaperRadius ?? 0.35;     // Distance from origin where tapering begins
 
-    // ── Historical Stroke Width Buffer ──
+    // ── Brush Tip / Taper (Наконечник кисти) ──
+    // Ensures the leading head of the brush is always slender and pointed like a fine brush tip,
+    // eliminating blunt, flat edges pushing forward.
+    this.headTaperLength = options.headTaperLength ?? 0.15; // fraction of stroke length [0.03 .. 0.35]
+    this.headTipWidth = options.headTipWidth ?? 0.02;       // minimum tip thickness ratio [0.0 .. 0.15]
+
+    // ── Asynchronous & Random Speed Dynamics ──
+    // Allows each brush to have an independent random movement speed and organic drift over time.
+    this.randomSpeedEnabled = options.randomSpeedEnabled ?? true;
+    this.speedMultiplier = options.speedMultiplier ?? 1.0;
+    this.speedDriftEnabled = options.speedDriftEnabled ?? true;
+    this.speedWanderIntensity = options.speedWanderIntensity ?? 0.55;
+    this.speedWanderFreq = options.speedWanderFreq ?? 0.28;
+    this.speedSeed = options.speedSeed ?? (Math.random() * 100.0);
+    this._currentV = 0.0;
+
+    // ── Independent Stroke Thickness Dynamics ──
+    // Decouples thickness modulation so each brush breathes at its own independent cadence
+    // and unique multi-harmonic pattern instead of pulsing in unison.
+    this.independentWidth = options.independentWidth ?? true;
+    this.widthSpeedMult = options.widthSpeedMult ?? 1.0;
+    this.widthHarmonicPhase = options.widthHarmonicPhase ?? (this.phaseOffset * 2.4);
+
+    // ── Historical Stroke Width Buffers (Main & Split Branches) ──
     // Stores the exact painted thickness for each vertebra (index 0 = head, segments-1 = tail).
     // When the brush head breathes or passes near the center, already-drawn points retain the width
     // they were created with as the stroke flows forward through time.
     this.widths = new Float32Array(this.segments);
     this._newWidths = new Float32Array(this.segments);
+    this.splitWidths = new Float32Array(this.segments);
+    this._splitNewWidths = new Float32Array(this.segments);
 
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
     // Governs max angular velocity: |ω_max| = v / minTurnRadius.
     this.minTurnRadius = options.minTurnRadius ?? 0.12;
 
-    // ── Steering Kinematics Agent State ──
-    // The brush head is an autonomous self-steering body with forward velocity v,
+    // ── Steering Kinematics Agent State (Invisible Guide Axis) ──
+    // The invisible brush head is an autonomous self-steering body with forward velocity v,
     // continuous heading angle θ, and strictly bounded angular velocity ω.
     this.headPos = new THREE.Vector2(
       Math.cos(this.phaseOffset) * (this.pathRadius || 0.42),
       Math.sin(this.phaseOffset) * (this.pathRadius || 0.42)
     );
     this._prevHeadPos = this.headPos.clone();
+
+    // Twin brush heads: Head A (main branch) and Head B (split branch)
+    this.headA = this.headPos.clone();
+    this.headB = this.headPos.clone();
+    this._prevHeadAPos = this.headPos.clone();
+    this._prevHeadBPos = this.headPos.clone();
+    this._prevGuidePos = this.headPos.clone();
+    this.pathDistance = 0.0;
 
     // Initial width calculation at initial head position
     const initR = this.headPos.length();
@@ -66,6 +126,7 @@ export class FishRibbon {
       : 1.0;
     const initW = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase)) * initRadial;
     this.widths.fill(initW);
+    this.splitWidths.fill(initW);
     this.currentWidth = initW;
     this.baseWidth = this.currentWidth;
 
@@ -100,9 +161,28 @@ export class FishRibbon {
 
     // ── Preallocated centerline vectors for smooth normal extrusion ──
     this._centerline = [];
+    this._splitCenterline = [];
     for (let i = 0; i < this.segments; i++) {
       this._centerline.push(this.spine[i].clone());
+      this._splitCenterline.push(this.spine[i].clone());
     }
+
+    // ── Immutable Path History Ring Buffers (Anchored to world space) ──
+    this._historyA = [];
+    this._historyB = [];
+    this._historyWidthsA = new Float32Array(this.segments);
+    this._historyWidthsB = new Float32Array(this.segments);
+    this._accumDistA = 0.0;
+    this._accumDistB = 0.0;
+    this._prevRecordedPosA = this.headA.clone();
+    this._prevRecordedPosB = this.headB.clone();
+
+    for (let i = 0; i < this.segments; i++) {
+      this._historyA.push(this.spine[i].clone());
+      this._historyB.push(this.splitSpine[i].clone());
+    }
+    this._historyWidthsA.fill(initW);
+    this._historyWidthsB.fill(initW);
 
     // Dynamic wave phase synchronized with movement speed
     this.wavePhase = this.phaseOffset;
@@ -231,20 +311,131 @@ export class FishRibbon {
     this.currentWidth = this.maxWidth * (0.5 - 0.5 * Math.cos(this.widthPhase));
     this.baseWidth = this.currentWidth;
 
+    this.headA.copy(this.headPos);
+    this.headB.copy(this.headPos);
+    this._prevHeadPos.copy(this.headPos);
+    this._prevHeadAPos.copy(this.headPos);
+    this._prevHeadBPos.copy(this.headPos);
+    this._prevGuidePos.copy(this.headPos);
+    this._prevRecordedPosA.copy(this.headPos);
+    this._prevRecordedPosB.copy(this.headPos);
+    this._accumDistA = 0.0;
+    this._accumDistB = 0.0;
+    this.pathDistance = 0.0;
+
+    this.splitState = 'CLOSED';
+    this.splitProgress = 0.0;
+    this.splitTimer = 0.0;
+    this.splitCooldown = 2.5 + (this.phaseOffset * 2.3) % 4.5;
+    this.splitMaxCap = this.maxWidth;
+    this.splitMesh.visible = false;
+    this._wasAboveThreshold = true;
+
     const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
     const initSegDist = 0.018 * (this.speed / 1.0);
     for (let i = 0; i < this.segments; i++) {
       this.spine[i].copy(this.headPos).addScaledVector(initDir, -i * initSegDist);
       this.splitSpine[i].copy(this.spine[i]);
       this._centerline[i].copy(this.spine[i]);
+      this._splitCenterline[i].copy(this.spine[i]);
+      this._historyA[i].copy(this.spine[i]);
+      this._historyB[i].copy(this.splitSpine[i]);
+      this._historyWidthsA[i] = this.currentWidth;
+      this._historyWidthsB[i] = this.currentWidth;
     }
+    this.widths.fill(this.currentWidth);
+    this.splitWidths.fill(this.currentWidth);
+  }
+
+  /**
+   * Triggers bifurcation into two heads.
+   * Locks the stroke thickness cap to the triggering thinness until the heads rejoin.
+   *
+   * @param {number} [currentWidth] - current brush thickness
+   * @param {boolean} [force=false]  - whether to override cooldown/state
+   */
+  triggerSplit(currentWidth, force = false) {
+    if (this.splitState !== 'CLOSED' && !force) return;
+    this.splitState = 'OPENING';
+    this.splitProgress = (force && this.splitProgress > 0) ? this.splitProgress : 0.0;
+    this.splitTimer = 0.0;
+    this.currentSplitDuration = this.splitDuration * (0.85 + Math.random() * 0.3);
+    const thresholdWidth = this.maxWidth * this.splitThreshold;
+    const w = (currentWidth !== undefined && currentWidth > 0) ? currentWidth : thresholdWidth;
+    this.splitMaxCap = Math.min(w, thresholdWidth);
+    this._wasAboveThreshold = false;
+  }
+
+  /**
+   * Updates the thickness limiter ceiling for this ribbon.
+   * Immediately clamps current and historical width buffers so changes take effect in real time.
+   * @param {number} limit - maximum allowable stroke thickness
+   */
+  setWidthLimit(limit) {
+    this.widthLimit = limit;
+    if (this.splitMaxCap > limit) this.splitMaxCap = limit;
+    for (let i = 0; i < this.segments; i++) {
+      if (this.widths[i] > limit) this.widths[i] = limit;
+      if (this.splitWidths[i] > limit) this.splitWidths[i] = limit;
+      if (this._historyWidthsA && this._historyWidthsA[i] > limit) this._historyWidthsA[i] = limit;
+      if (this._historyWidthsB && this._historyWidthsB[i] > limit) this._historyWidthsB[i] = limit;
+    }
+  }
+
+  /**
+   * Advects historical stroke width values along a spine.
+   */
+  _advectWidths(widths, newWidths, headWidth, shift) {
+    newWidths[0] = headWidth;
+    if (shift > 0.00001) {
+      const segs = this.segments;
+      for (let i = 1; i < segs; i++) {
+        const srcIndex = i - shift;
+        if (srcIndex <= 0.0) {
+          const alpha = Math.max(0.0, Math.min(1.0, i / Math.max(0.0001, shift)));
+          newWidths[i] = THREE.MathUtils.lerp(headWidth, widths[0], alpha);
+        } else {
+          const k = Math.floor(srcIndex);
+          const f = srcIndex - k;
+          if (k + 1 < segs) {
+            newWidths[i] = THREE.MathUtils.lerp(widths[k], widths[k + 1], f);
+          } else {
+            newWidths[i] = widths[segs - 1];
+          }
+        }
+      }
+    } else {
+      for (let i = 1; i < this.segments; i++) {
+        newWidths[i] = widths[i];
+      }
+    }
+    widths.set(newWidths);
+  }
+
+  /**
+   * Computes forward velocity considering master orbitSpeed, individual speed multipliers,
+   * organic wandering drift, and external audio modulation.
+   */
+  _computeVelocity(time) {
+    let speed = this.orbitSpeed * 0.75;
+    if (this.randomSpeedEnabled) {
+      speed *= this.speedMultiplier;
+      if (this.speedDriftEnabled) {
+        // Multi-harmonic smooth organic speed wandering unique to each ribbon
+        const w = Math.sin(time * this.speedWanderFreq + this.speedSeed) * 0.4 +
+                  Math.sin(time * this.speedWanderFreq * 1.618 + this.speedSeed * 1.7) * 0.25;
+        const drift = Math.max(0.2, 1.0 + w * this.speedWanderIntensity);
+        speed *= drift;
+      }
+    }
+    return Math.max(0.0, speed * this.audioSpeedMult);
   }
 
   /**
    * Updates the autonomous brush agent using steering kinematics.
    *
    * Kinematic model:
-   *  - Linear velocity:  v = orbitSpeed * 0.75 * audioSpeedMult
+   *  - Linear velocity:  v = _computeVelocity(time)
    *  - Angular velocity: ω is driven by smooth multi-harmonic wandering and a soft
    *                      centripetal restoring force keeping the brush inside the mandala.
    *  - Curvature limit:  |ω| ≤ v / R_min, mathematically guaranteeing that the turning
@@ -258,8 +449,9 @@ export class FishRibbon {
     // Clamp dt to avoid huge jumps on tab switch / lag spike
     const clampedDt = Math.min(Math.max(dt || 0.016, 0.001), 0.05);
 
-    // 1. Forward linear velocity
-    const v = Math.max(0.0, this.orbitSpeed * 0.75 * this.audioSpeedMult);
+    // 1. Forward linear velocity (with individual multiplier and drift)
+    const v = this._computeVelocity(time);
+    this._currentV = v;
 
     if (v < 0.0001) {
       return this.headPos;
@@ -358,144 +550,340 @@ export class FishRibbon {
   }
 
   /**
-   * Updates kinematics and ribbon vertex buffer
+   * Updates kinematics, bifurcation state machine, and ribbon vertex buffers.
    */
   update(time, delta) {
     this.material.uniforms.uTime.value = time;
     this.splitMaterial.uniforms.uTime.value = time;
 
-    // 0. Dynamic stroke thickness modulation (smooth breathing between 0.0 and 0.08)
     const clampedDelta = Math.min(Math.max(delta || 0.016, 0.001), 0.05);
-    this.widthPhase += this.widthSpeed * clampedDelta;
-    const widthCycle = 0.5 - 0.5 * Math.cos(this.widthPhase);
-    let targetHeadWidth = this.maxWidth * widthCycle;
 
-    // 1. Calculate leading head via autonomous steering kinematics
-    const head = this._updateHeadAgent(time, delta);
-    this.spine[0].copy(head);
+    // 0. Dynamic stroke thickness modulation (independent or synchronized)
+    const effectiveWidthSpeed = this.widthSpeed * (this.independentWidth ? this.widthSpeedMult : 1.0);
+    this.widthPhase += effectiveWidthSpeed * clampedDelta;
 
-    // Apply Radial Limiter to Head's Width Generator:
-    // When the brush tip is near mandala center (0, 0), stroke thickness is limited/tapered.
+    let widthCycle;
+    if (this.independentWidth) {
+      // Multi-harmonic organic breathing:
+      // Golden ratio harmonics (1.618 and 0.618) with phase offsets guarantee
+      // that each brush breathes at its own unique, non-repeating cadence.
+      const phi = this.widthPhase;
+      const h1 = Math.sin(phi);
+      const h2 = Math.sin(phi * 1.618 + this.widthHarmonicPhase) * 0.35;
+      const h3 = Math.sin(phi * 0.618 + this.widthHarmonicPhase * 2.1) * 0.2;
+      const rawCycle = (h1 + h2 + h3 + 1.55) / 3.1;
+      widthCycle = THREE.MathUtils.clamp(rawCycle, 0.0, 1.0);
+    } else {
+      widthCycle = 0.5 - 0.5 * Math.cos(this.widthPhase);
+    }
+
+    let rawHeadWidth = this.maxWidth * widthCycle;
+
+    // Apply Radial Limiter to raw head width near mandala center (0, 0)
     if (this.centerTaperStrength > 0.001) {
-      const r = head.length();
+      const r = this.headPos.length();
       const normR = Math.min(1.0, r / Math.max(0.001, this.centerTaperRadius));
       const smoothR = normR * normR * (3.0 - 2.0 * normR); // Cubic Hermite smoothstep [0, 1]
       const radialFactor = 1.0 - this.centerTaperStrength * (1.0 - smoothR);
-      targetHeadWidth *= radialFactor;
+      rawHeadWidth *= radialFactor;
     }
-    this.currentWidth = targetHeadWidth;
-    this.baseWidth = this.currentWidth;
 
-    // Current forward speed
-    const v = Math.max(0.0, this.orbitSpeed * 0.75 * this.audioSpeedMult);
+    // ── 1. Bifurcation State Machine & Probability Trigger ──
+    // Feature condition: only has a probability of occurring when the stroke thickness
+    // dips below a configured threshold ratio.
+    const thresholdWidth = this.maxWidth * this.splitThreshold;
+    const isBelowThreshold = (rawHeadWidth <= thresholdWidth);
 
-    // 2. Spine follow-through (IK kinematic drag from head to tail)
-    // Sub-stepping at higher speeds eliminates the whip-like phase lag / catch-up snap
-    const substeps = (v > 0.45) ? 2 : 1;
-    const segDist = 0.018 * (this.speed / 1.0);
-
-    for (let step = 0; step < substeps; step++) {
-      for (let i = 1; i < this.segments; i++) {
-        const prev = this.spine[i - 1];
-        const curr = this.spine[i];
-        this._tmpDir.subVectors(curr, prev);
-        const len = this._tmpDir.length();
-        if (len > 0.0001) {
-          this._tmpDir.multiplyScalar(segDist / len);
-          curr.copy(prev).add(this._tmpDir);
+    if (this.bifurcationEnabled) {
+      if (this.splitState === 'CLOSED') {
+        this.splitCooldown -= clampedDelta;
+        if (isBelowThreshold) {
+          // Negative edge trigger: crossing into the thin zone
+          if (this._wasAboveThreshold && this.splitCooldown <= 0.0) {
+            if (Math.random() < this.splitChance) {
+              this.triggerSplit(rawHeadWidth);
+            } else {
+              // Dice roll failed: set short cooldown before testing next opportunity
+              this.splitCooldown = 3.5;
+            }
+          }
+          this._wasAboveThreshold = false;
         } else {
-          curr.copy(prev);
+          this._wasAboveThreshold = true;
         }
+      }
+    } else if (this.splitState !== 'CLOSED') {
+      // If disabled mid-split, smoothly close
+      this.splitState = 'CLOSING';
+    }
+
+    // Advance split lifecycle
+    if (this.splitState === 'OPENING') {
+      this.splitTimer += clampedDelta;
+      const t = Math.min(1.0, this.splitTimer / Math.max(0.01, this.splitOpenDuration));
+      this.splitProgress = t * t * (3.0 - 2.0 * t); // Smoothstep 0 -> 1
+      if (t >= 1.0) {
+        this.splitState = 'SUSTAINED';
+        this.splitTimer = 0.0;
+      }
+    } else if (this.splitState === 'SUSTAINED') {
+      this.splitProgress = 1.0;
+      this.splitTimer += clampedDelta;
+      if (this.splitTimer >= this.currentSplitDuration) {
+        this.splitState = 'CLOSING';
+        this.splitTimer = 0.0;
+      }
+    } else if (this.splitState === 'CLOSING') {
+      this.splitTimer += clampedDelta;
+      const t = Math.min(1.0, this.splitTimer / Math.max(0.01, this.splitCloseDuration));
+      this.splitProgress = 1.0 - t * t * (3.0 - 2.0 * t); // Smoothstep 1 -> 0
+      if (t >= 1.0) {
+        this.splitProgress = 0.0;
+        this.splitState = 'CLOSED';
+        this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
       }
     }
 
-    // 2b. Advect historical stroke thickness along the spine
-    // As the head moves forward, each segment inherits the thickness that was laid down
-    // when the brush traversed that point. This ensures already-drawn points retain their width.
-    const dStep = head.distanceTo(this._prevHeadPos);
-    this._prevHeadPos.copy(head);
+    // ── Thickness Capping Rule ──
+    // "при активации раздвоения эта толщина не будет увеличена (будет новым временным порогом
+    // толщины до той поры, пока две головы вновь не схлопнутся)"
+    let effectiveHeadWidth = rawHeadWidth;
+    if (this.splitState !== 'CLOSED') {
+      effectiveHeadWidth = Math.min(rawHeadWidth, this.splitMaxCap);
+    } else {
+      // Once closed, smoothly release the cap back up to maxWidth
+      if (this.splitMaxCap < this.maxWidth) {
+        this.splitMaxCap += (this.maxWidth - this.splitMaxCap) * Math.min(1.0, clampedDelta * 1.6);
+      }
+    }
 
-    const shift = (segDist > 0.0001) ? (dStep / segDist) : 0.0;
-    this._newWidths[0] = targetHeadWidth;
+    // Apply global thickness limiter ceiling
+    if (this.widthLimit > 0.0001) {
+      effectiveHeadWidth = Math.min(effectiveHeadWidth, this.widthLimit);
+    }
 
-    if (shift > 0.00001) {
+    // "в режиме раздвоения их толщины должны быть заведомо поменьше, чтобы не перекрывать промежуток между ними"
+    const twinBranchScale = THREE.MathUtils.lerp(1.0, 0.62, this.splitProgress);
+    const headWidthA = effectiveHeadWidth * twinBranchScale * (1.0 + 0.12 * Math.sin(time * 2.2 + this.splitSeed));
+    const headWidthB = effectiveHeadWidth * twinBranchScale * (1.0 - 0.12 * Math.sin(time * 2.2 + this.splitSeed));
+    this.currentWidth = headWidthA;
+    this.baseWidth = this.currentWidth;
+
+    // ── 2. Invisible Guide Kinematics & Spatial Sine Wave ──
+    // The central guide agent follows its continuous physical trajectory uninterrupted.
+    const guidePos = this._updateHeadAgent(time, delta);
+
+    // Accumulate distance traveled by the guide agent along the path:
+    const guideStep = guidePos.distanceTo(this._prevGuidePos);
+    this._prevGuidePos.copy(guidePos);
+    this.pathDistance += guideStep;
+
+    // Tangent and normal vectors of the invisible guide axis
+    const tx = Math.cos(this.headingAngle);
+    const ty = Math.sin(this.headingAngle);
+    const nx = -ty;
+    const ny = tx;
+
+    // Spatial Sine Wave along motion path (Зафиксированная синусоида):
+    // Driven strictly by arclength pathDistance (NOT elapsed time).
+    // As the brush travels forward, the tip weaves in a calligraphic sinusoid.
+    // Because this depends solely on distance s, once points are committed to history,
+    // every wave crest is 100% frozen in space without wiggling or swimming!
+    const spatialAngle = this.pathDistance * (this.waveFreq * 5.0) + this.phaseOffset;
+    const waveOffset = (this.waveAmp > 0.0001) ? (this.waveAmp * Math.sin(spatialAngle)) : 0.0;
+
+    // Twin heads diverge symmetrically from the central guide axis:
+    // "им нужно двигаться примерно в одну сторону, чтобы в будущем сойтись, но пока это не произошло,
+    // могут быть небольшие разницы в движении (отдаления и приближения к общей оси)."
+    const S = this.splitProgress;
+    const halfSep = this.splitSeparation * 0.5;
+
+    // Independent organic drift for each head (small distances away/towards axis + leading/lagging)
+    const wanderA = halfSep * 0.28 * Math.sin(time * 1.7 + this.splitSeed);
+    const wanderB = halfSep * 0.28 * Math.sin(time * 2.4 + this.splitSeed * 1.5);
+    const leadA   = halfSep * 0.22 * Math.sin(time * 1.3 + this.splitSeed);
+    const leadB   = -leadA;
+
+    const offsetA = S * (halfSep + wanderA);
+    const offsetB = -S * (halfSep + wanderB);
+    const fwdA    = S * leadA;
+    const fwdB    = S * leadB;
+
+    this.headA.set(
+      guidePos.x + nx * (offsetA + waveOffset) + tx * fwdA,
+      guidePos.y + ny * (offsetA + waveOffset) + ty * fwdA
+    );
+    this.headB.set(
+      guidePos.x + nx * (offsetB + waveOffset) + tx * fwdB,
+      guidePos.y + ny * (offsetB + waveOffset) + ty * fwdB
+    );
+
+    this.spine[0].copy(this.headA);
+    this.splitSpine[0].copy(this.headB);
+
+    // Forward speed (from kinematics)
+    const v = this._currentV;
+    const segDist = 0.018 * (this.speed / 1.0);
+
+    if (this.fixedPathTrail) {
+      // ── 3. Fixed Path Trail (Immutable Trajectory History) ──
+      // Samples spine points directly from the exact historical path of the brush head.
+      // Once deposited on the paper at (x, y), points NEVER cut corners or slide laterally.
+
+      // Head A history accumulation:
+      const dStepA = this.headA.distanceTo(this._prevHeadAPos);
+      this._prevHeadAPos.copy(this.headA);
+      this._accumDistA += dStepA;
+
+      const safeSegDist = Math.max(0.001, segDist);
+      let itersA = 20;
+      while (this._accumDistA >= safeSegDist && itersA-- > 0) {
+        this._accumDistA -= safeSegDist;
+        const backDist = this._accumDistA;
+        const t = (dStepA > 0.00001) ? THREE.MathUtils.clamp(1.0 - backDist / dStepA, 0.0, 1.0) : 1.0;
+        this._tmpHead.lerpVectors(this._prevRecordedPosA, this.headA, t);
+        this._prevRecordedPosA.copy(this._tmpHead);
+
+        for (let i = this.segments - 1; i > 0; i--) {
+          this._historyA[i].copy(this._historyA[i - 1]);
+          this._historyWidthsA[i] = this._historyWidthsA[i - 1];
+        }
+        this._historyA[0].copy(this._tmpHead);
+        this._historyWidthsA[0] = headWidthA;
+      }
+
+      // Head B history accumulation:
+      const dStepB = this.headB.distanceTo(this._prevHeadBPos);
+      this._prevHeadBPos.copy(this.headB);
+      this._accumDistB += dStepB;
+
+      let itersB = 20;
+      while (this._accumDistB >= safeSegDist && itersB-- > 0) {
+        this._accumDistB -= safeSegDist;
+        const backDist = this._accumDistB;
+        const t = (dStepB > 0.00001) ? THREE.MathUtils.clamp(1.0 - backDist / dStepB, 0.0, 1.0) : 1.0;
+        this._tmpHead.lerpVectors(this._prevRecordedPosB, this.headB, t);
+        this._prevRecordedPosB.copy(this._tmpHead);
+
+        for (let i = this.segments - 1; i > 0; i--) {
+          this._historyB[i].copy(this._historyB[i - 1]);
+          this._historyWidthsB[i] = this._historyWidthsB[i - 1];
+        }
+        this._historyB[0].copy(this._tmpHead);
+        this._historyWidthsB[0] = headWidthB;
+      }
+
+      // Populate spine and widths buffers:
+      // index 0 = active leading head; indices 1..N-1 = frozen immutable path points on canvas
+      this.spine[0].copy(this.headA);
+      this.widths[0] = headWidthA;
       for (let i = 1; i < this.segments; i++) {
-        const srcIndex = i - shift;
-        if (srcIndex <= 0.0) {
-          // Born between previous and current frame: interpolate from targetHeadWidth to previous widths[0]
-          const alpha = Math.max(0.0, Math.min(1.0, i / Math.max(0.0001, shift)));
-          this._newWidths[i] = THREE.MathUtils.lerp(targetHeadWidth, this.widths[0], alpha);
-        } else {
-          const k = Math.floor(srcIndex);
-          const f = srcIndex - k;
-          if (k + 1 < this.segments) {
-            this._newWidths[i] = THREE.MathUtils.lerp(this.widths[k], this.widths[k + 1], f);
+        this.spine[i].copy(this._historyA[i - 1]);
+        this.widths[i] = this._historyWidthsA[i - 1];
+      }
+
+      this.splitSpine[0].copy(this.headB);
+      this.splitWidths[0] = headWidthB;
+      for (let i = 1; i < this.segments; i++) {
+        this.splitSpine[i].copy(this._historyB[i - 1]);
+        this.splitWidths[i] = this._historyWidthsB[i - 1];
+      }
+    } else {
+      // Legacy IK kinematic drag (if user toggles off fixedPathTrail)
+      const substeps = (v > 0.45) ? 2 : 1;
+      for (let step = 0; step < substeps; step++) {
+        for (let i = 1; i < this.segments; i++) {
+          const prevA = this.spine[i - 1];
+          const currA = this.spine[i];
+          this._tmpDir.subVectors(currA, prevA);
+          const lenA = this._tmpDir.length();
+          if (lenA > 0.0001) {
+            this._tmpDir.multiplyScalar(segDist / lenA);
+            currA.copy(prevA).add(this._tmpDir);
           } else {
-            this._newWidths[i] = this.widths[this.segments - 1];
+            currA.copy(prevA);
+          }
+
+          const prevB = this.splitSpine[i - 1];
+          const currB = this.splitSpine[i];
+          this._tmpDir.subVectors(currB, prevB);
+          const lenB = this._tmpDir.length();
+          if (lenB > 0.0001) {
+            this._tmpDir.multiplyScalar(segDist / lenB);
+            currB.copy(prevB).add(this._tmpDir);
+          } else {
+            currB.copy(prevB);
           }
         }
       }
+
+      const dStepA = this.headA.distanceTo(this._prevHeadAPos);
+      this._prevHeadAPos.copy(this.headA);
+      const shiftA = (segDist > 0.0001) ? (dStepA / segDist) : 0.0;
+      this._advectWidths(this.widths, this._newWidths, headWidthA, shiftA);
+
+      const dStepB = this.headB.distanceTo(this._prevHeadBPos);
+      this._prevHeadBPos.copy(this.headB);
+      const shiftB = (segDist > 0.0001) ? (dStepB / segDist) : 0.0;
+      this._advectWidths(this.splitWidths, this._splitNewWidths, headWidthB, shiftB);
+    }
+
+    // ── 5. Lateral Offsets ──
+    // When fixedPathTrail is active, the spatial sinusoid is already baked into headA/headB and the history buffer.
+    // Thus lateralOffsets is strictly 0.0, guaranteeing that already-drawn points never wobble or swim in time.
+    const lateralOffsetsA = [];
+    const lateralOffsetsB = [];
+    if (!this.fixedPathTrail && this.waveAmp > 0.0001) {
+      const waveSpeed = v * 11.0 + 0.6;
+      this.wavePhase += waveSpeed * clampedDelta;
+      const speedFactor = THREE.MathUtils.clamp(v / 0.35, 0.25, 1.15);
+      for (let i = 0; i < this.segments; i++) {
+        const s = i / (this.segments - 1);
+        const amp = this.waveAmp * speedFactor * Math.sin(Math.pow(s, 0.85) * Math.PI * 0.5) * (1.0 - 0.22 * s);
+        lateralOffsetsA.push(amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - this.wavePhase));
+        lateralOffsetsB.push(amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - (this.wavePhase + 0.35)));
+      }
     } else {
-      for (let i = 1; i < this.segments; i++) {
-        this._newWidths[i] = this.widths[i];
+      // 100% frozen: points stay stationary on the canvas
+      for (let i = 0; i < this.segments; i++) {
+        lateralOffsetsA.push(0.0);
+        lateralOffsetsB.push(0.0);
       }
     }
-    this.widths.set(this._newWidths);
 
-    // 3. Fish Swimming Wave (Carangiform Undulation)
-    // Synchronize wave phase to forward speed:
-    // When slow/stationary, it has a slow, gentle sway; when fast, wave frequency scales naturally.
-    const waveSpeed = v * 11.0 + 0.6;
-    this.wavePhase += waveSpeed * Math.min(delta || 0.016, 0.05);
+    // ── 6. Update Main Ribbon Mesh Vertices ──
+    this._updateMeshGeometry(this.geometry, this.spine, lateralOffsetsA, this.widths, this._centerline);
 
-    // Lateral amplitude scales with forward speed (avoids rapid flapping while crawling)
-    const speedFactor = THREE.MathUtils.clamp(v / 0.35, 0.25, 1.15);
-    const lateralOffsets = [];
-    for (let i = 0; i < this.segments; i++) {
-      const s = i / (this.segments - 1); // 0 at head, 1 at tail
-      
-      // Biomechanical amplitude envelope: gentle at head, swells along body, smoothly eases at tail tip
-      const amp = this.waveAmp * speedFactor * Math.sin(Math.pow(s, 0.85) * Math.PI * 0.5) * (1.0 - 0.22 * s);
-      const wave = Math.sin(this.waveFreq * s * Math.PI * 2.0 - this.wavePhase);
-      lateralOffsets.push(amp * wave);
-    }
-
-    // 4. Update Main Ribbon Mesh Vertices
-    this._updateMeshGeometry(this.geometry, this.spine, lateralOffsets, 1.0, 0.0);
-
-    // 5. Handle Splitting / Bifurcation
-    // Split cycle: periodic swelling and separation
-    const splitCycle = Math.sin(time * 0.8 + this.phaseOffset) * 0.5 + 0.5; // 0 to 1
-    const effectiveSplit = THREE.MathUtils.lerp(0.0, this.splitIntensity, splitCycle);
-
-    if (effectiveSplit > 0.05) {
+    // ── 7. Update Split Branch Ribbon Mesh Vertices ──
+    if (this.splitProgress > 0.001) {
       this.splitMesh.visible = true;
-      this.splitMesh.count = this.mesh.count; // match main mesh (respects debug mode override)
-      this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(effectiveSplit * 1.5, 0.0, 0.95);
-      
-      // Update Split Branch: diverges opposite to the main branch
-      this._updateMeshGeometry(this.splitGeometry, this.spine, lateralOffsets, 0.75, effectiveSplit);
+      this.splitMesh.count = this.mesh.count;
+      this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(this.splitProgress * 1.5, 0.0, 0.95);
+      this._updateMeshGeometry(this.splitGeometry, this.splitSpine, lateralOffsetsB, this.splitWidths, this._splitCenterline);
     } else {
       this.splitMesh.visible = false;
     }
   }
 
-  _updateMeshGeometry(geometry, spine, lateralOffsets, widthScale, splitDivergence) {
+  _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline) {
     const posAttr = geometry.attributes.position;
     const uvAttr = geometry.attributes.uv;
     const positions = posAttr.array;
     const uvs = uvAttr.array;
     const segs = this.segments;
 
-    // Pass 1: Compute the continuous undulating centerline positions
-    // Uses central-difference normals of the spine to avoid abrupt turns
+    // Pass 1: Compute continuous undulating centerline positions
     for (let i = 0; i < segs; i++) {
-      const s = i / (segs - 1);
       const curr = spine[i];
 
       // Central difference tangent of spine
       if (i === 0) {
-        this._tmpTangent.subVectors(spine[1], curr).normalize();
+        this._tmpTangent.subVectors(spine[1], curr);
+        if (this._tmpTangent.lengthSq() < 0.000001) {
+          this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
+        } else {
+          this._tmpTangent.normalize();
+        }
       } else if (i === segs - 1) {
         this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
       } else {
@@ -504,43 +892,52 @@ export class FishRibbon {
       this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
       // Base centerline with lateral undulation offset
-      const c = this._centerline[i];
+      const c = centerline[i];
       c.copy(curr).addScaledVector(this._tmpNormal, lateralOffsets[i]);
-
-      // If split branch, diverge outward along the normal
-      if (splitDivergence > 0.0) {
-        const divergeFactor = Math.sin(Math.PI * s) * splitDivergence * 0.12;
-        c.addScaledVector(this._tmpNormal, -divergeFactor);
-      }
     }
 
-    // Pass 2: Extrude ribbon vertices perpendicular to the TRUE undulating centerline
-    // This mathematically prevents self-intersecting folded triangles at the tail.
+    // Pass 2: Extrude ribbon vertices perpendicular to the undulating centerline
     for (let i = 0; i < segs; i++) {
       const s = i / (segs - 1);
-      const c = this._centerline[i];
+      const c = centerline[i];
 
-      // Tangent along the undulating centerline
+      // Tangent along undulating centerline
       if (i === 0) {
-        this._tmpTangent.subVectors(this._centerline[1], c).normalize();
+        this._tmpTangent.subVectors(centerline[1], c);
+        if (this._tmpTangent.lengthSq() < 0.000001) {
+          this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
+        } else {
+          this._tmpTangent.normalize();
+        }
       } else if (i === segs - 1) {
-        this._tmpTangent.subVectors(c, this._centerline[i - 1]).normalize();
+        this._tmpTangent.subVectors(c, centerline[i - 1]).normalize();
       } else {
-        this._tmpTangent.subVectors(this._centerline[i + 1], this._centerline[i - 1]).normalize();
+        this._tmpTangent.subVectors(centerline[i + 1], centerline[i - 1]).normalize();
       }
       this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
       // Width of this specific vertebra as recorded when it was drawn
-      const vertebraWidth = this.widths[i];
+      const vertebraWidth = widthsBuffer[i];
 
-      // Smooth tail taper: graceful exit over the final 12% of the ribbon tail
+      // 1. Smooth head taper (pointed brush tip / наконечник кисти)
+      // Keeps the front leading end always thin and pointed like a fine calligraphy brush tip,
+      // preventing a blunt edge from plowing forward.
+      let headTaper = 1.0;
+      if (this.headTaperLength > 0.001 && s < this.headTaperLength) {
+        const t = s / this.headTaperLength; // 0.0 at tip -> 1.0 at full body
+        const sinT = Math.sin(t * Math.PI * 0.5);
+        const curve = Math.pow(sinT, 1.4);
+        headTaper = this.headTipWidth + (1.0 - this.headTipWidth) * curve;
+      }
+
+      // 2. Smooth tail taper: graceful exit over the final 12% of the ribbon tail
       let tailTaper = 1.0;
       if (s > 0.88) {
         const t = (s - 0.88) / 0.12;
         tailTaper = Math.cos(t * Math.PI * 0.5); // 1.0 -> 0.0 smooth
       }
 
-      const halfWidth = (vertebraWidth * widthScale * 0.5) * tailTaper;
+      const halfWidth = (vertebraWidth * 0.5) * headTaper * tailTaper;
 
       // Left / right vertices along true normal
       this._tmpLeft.copy(c).addScaledVector(this._tmpNormal,  halfWidth);

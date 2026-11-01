@@ -36,18 +36,29 @@ export class BrushDebugOverlay {
       new THREE.Color(0xcc88ff),  // ribbon 2 – violet
     ];
 
+    // Secondary split branch colors (matching splitMaterials)
+    this._splitColors = [
+      new THREE.Color(0xffaa33),  // ribbon 0 split – amber
+      new THREE.Color(0x20e0a0),  // ribbon 1 split – emerald
+      new THREE.Color(0xff7788),  // ribbon 2 split – coral
+    ];
+
     // Build Three.js helpers
-    this._spineLines     = this._buildSpineLines();
-    this._headDots       = this._buildHeadDots();
-    this._arrows         = this._buildArrows();
-    this._ghostTrails    = this._buildGhostTrails();
-    this._mandalaGuides  = this._buildMandalaGuides();
+    this._spineLines       = this._buildSpineLines(false);
+    this._splitSpineLines  = this._buildSpineLines(true);
+    this._headDots         = this._buildHeadDots(false);
+    this._splitHeadDots    = this._buildHeadDots(true);
+    this._arrows           = this._buildArrows();
+    this._ghostTrails      = this._buildGhostTrails();
+    this._mandalaGuides    = this._buildMandalaGuides();
 
     // Add all to scene (initially hidden)
-    this._spineLines.forEach(o  => scene.add(o));
-    this._headDots.forEach(o    => scene.add(o));
-    this._arrows.forEach(o      => scene.add(o));
-    this._ghostTrails.forEach(g => g.forEach(o => scene.add(o)));
+    this._spineLines.forEach(o       => scene.add(o));
+    this._splitSpineLines.forEach(o  => scene.add(o));
+    this._headDots.forEach(o         => scene.add(o));
+    this._splitHeadDots.forEach(o    => scene.add(o));
+    this._arrows.forEach(o           => scene.add(o));
+    this._ghostTrails.forEach(g      => g.forEach(o => scene.add(o)));
 
     const mg = this._mandalaGuides;
     scene.add(mg.fill);
@@ -62,7 +73,8 @@ export class BrushDebugOverlay {
 
   // ─────────────────────── builders ────────────────────────
 
-  _buildSpineLines() {
+  _buildSpineLines(isSplit = false) {
+    const palette = isSplit ? this._splitColors : this._colors;
     return this.ribbons.map((ribbon, idx) => {
       const count     = ribbon.segments;
       const positions = new Float32Array(count * 3);
@@ -71,25 +83,27 @@ export class BrushDebugOverlay {
         new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
 
       const mat = new THREE.LineBasicMaterial({
-        color: this._colors[idx] ?? new THREE.Color(0xffffff),
+        color: palette[idx] ?? new THREE.Color(0xffffff),
         transparent: true,
-        opacity: 0.8,
+        opacity: isSplit ? 0.7 : 0.85,
         depthTest: false,
       });
 
       const line = new THREE.Line(geom, mat);
-      line.renderOrder = 10;
+      line.renderOrder = isSplit ? 9 : 10;
+      line.visible = false;
       return line;
     });
   }
 
-  _buildHeadDots() {
+  _buildHeadDots(isSplit = false) {
+    const palette = isSplit ? this._splitColors : this._colors;
     return this.ribbons.map((ribbon, idx) => {
       const canvas = document.createElement('canvas');
       canvas.width  = 64;
       canvas.height = 64;
       const ctx = canvas.getContext('2d');
-      const col = this._colors[idx] ?? new THREE.Color(0xffffff);
+      const col = palette[idx] ?? new THREE.Color(0xffffff);
       const hexStr = '#' + col.getHexString();
 
       const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
@@ -109,6 +123,7 @@ export class BrushDebugOverlay {
       const sprite = new THREE.Sprite(mat);
       sprite.scale.set(0.06, 0.06, 1);
       sprite.renderOrder = 20;
+      sprite.visible = false;
       return sprite;
     });
   }
@@ -359,8 +374,11 @@ export class BrushDebugOverlay {
     if (idx < 0 || idx >= this._ribbonVisible.length) return;
     this._ribbonVisible[idx] = v;
     if (this.visible) {
+      const ribbon = this.ribbons[idx];
       this._spineLines[idx].visible = v;
       this._headDots[idx].visible = v;
+      this._splitSpineLines[idx].visible = v && (ribbon?.splitProgress > 0.05);
+      this._splitHeadDots[idx].visible = v && (ribbon?.splitProgress > 0.05);
       this._arrows[idx].visible = v;
       this._ghostTrails[idx].forEach(o => { o.visible = v; });
     }
@@ -368,10 +386,12 @@ export class BrushDebugOverlay {
 
   setVisible(v) {
     this.visible = v;
-    this.ribbons.forEach((_, idx) => {
+    this.ribbons.forEach((ribbon, idx) => {
       const show = v && this._ribbonVisible[idx];
       this._spineLines[idx].visible = show;
       this._headDots[idx].visible   = show;
+      this._splitSpineLines[idx].visible = show && (ribbon.splitProgress > 0.05);
+      this._splitHeadDots[idx].visible   = show && (ribbon.splitProgress > 0.05);
       this._arrows[idx].visible     = show;
       this._ghostTrails[idx].forEach(o => { o.visible = show; });
     });
@@ -422,6 +442,27 @@ export class BrushDebugOverlay {
       const pulse = 1.0 + 0.3 * Math.sin(Date.now() * 0.006 + idx * 2.1);
       this._headDots[idx].scale.setScalar(0.07 * pulse);
 
+      // ── 2b. Secondary split spine & head dot (when bifurcated) ──
+      const isSplitActive = ribbon.splitProgress > 0.05;
+      this._splitSpineLines[idx].visible = isSplitActive;
+      this._splitHeadDots[idx].visible   = isSplitActive;
+
+      if (isSplitActive) {
+        const splitSpine = ribbon.splitSpine;
+        const splitSpinePos = this._splitSpineLines[idx].geometry.attributes.position.array;
+        for (let i = 0; i < n; i++) {
+          splitSpinePos[i * 3 + 0] = splitSpine[i].x;
+          splitSpinePos[i * 3 + 1] = splitSpine[i].y;
+          splitSpinePos[i * 3 + 2] = 0.02;
+        }
+        this._splitSpineLines[idx].geometry.setDrawRange(0, n);
+        this._splitSpineLines[idx].geometry.attributes.position.needsUpdate = true;
+
+        const headB = splitSpine[0];
+        this._splitHeadDots[idx].position.set(headB.x, headB.y, 0.05);
+        this._splitHeadDots[idx].scale.setScalar(0.065 * pulse);
+      }
+
       // ── 3. Velocity arrow ────────────────────────────────
       const arrowPos = this._arrows[idx].geometry.attributes.position.array;
       const dx = head.x - spine[1].x;
@@ -457,7 +498,9 @@ export class BrushDebugOverlay {
     const mg = this._mandalaGuides;
     const all = [
       ...this._spineLines,
+      ...this._splitSpineLines,
       ...this._headDots,
+      ...this._splitHeadDots,
       ...this._arrows,
       ...this._ghostTrails.flat(),
       mg.fill,

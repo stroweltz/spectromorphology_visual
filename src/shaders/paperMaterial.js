@@ -80,21 +80,23 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         float distFromCenter = abs(v);
 
         // 1. Deckled / Torn Paper Edge
-        // Displace the edge with high-frequency noise
-        float edgeNoise = fbm(vec2(u * 35.0, v * 12.0)) * uRoughness;
+        // Displace the edge with high-frequency noise anchored to the paper sheet (world space)
+        // so the fibrous grain does not crawl or drift as the brush draws forward.
+        vec2 paperCoord = vPosition.xy * 24.0;
+        float edgeNoise = fbm(paperCoord) * uRoughness;
         float edgeProfile = distFromCenter + (edgeNoise - 0.5 * uRoughness);
         
         // Crisp falloff like fibrous torn paper
         float alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
         if (alphaEdge <= 0.005) discard;
 
-        // 2. Paper Fibers (anisotropic noise stretched along u axis)
-        vec2 fiberCoord = vec2(u * 12.0, v * 90.0);
+        // 2. Paper Fibers (anisotropic grain anchored to the sheet)
+        vec2 fiberCoord = vec2(paperCoord.x * 2.0, paperCoord.y * 6.0);
         float fiber = noise(fiberCoord);
         float fiberFaint = smoothstep(0.6, 0.9, fiber);
 
         // 3. Mottling / Paper Pulp Density
-        float pulpDensity = fbm(vec2(u * 6.0, v * 4.0));
+        float pulpDensity = fbm(paperCoord * 0.4);
         
         // 4. Color Shading (Pigment absorption + fiber darkening)
         vec3 col = uColor;
