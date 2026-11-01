@@ -19,6 +19,9 @@ export default defineConfig({
               try {
                 const data = JSON.parse(body);
                 fs.writeFileSync(path.resolve('.perf_report.json'), JSON.stringify(data, null, 2), 'utf-8');
+                const logLine = `[PERF ${new Date().toLocaleTimeString()}] FPS: ${data.fps} | Frame: ${data.frameTimeMs}ms (max: ${data.maxIntervalMs}ms) | CPU: ${data.cpuMs}ms | GPU: ${data.gpuMs}ms | Trail shifts: ${data.trailShiftsPerSec ?? 'N/A'} Hz | Janks: ${data.jankFrames ?? 0}\n`;
+                fs.appendFileSync(path.resolve('.perf_history.log'), logLine, 'utf-8');
+                console.log(logLine.trim());
               } catch (e) {}
               res.statusCode = 200;
               res.setHeader('Content-Type', 'text/plain');

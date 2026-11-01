@@ -761,10 +761,22 @@ let accumGpuMs = 0;
 let accumFrameMs = 0;
 let maxFrameIntervalMs = 0;
 
+// High-precision frame timing history & jank analysis
+const frameIntervalHistory = [];
+let jankFramesCount = 0;
+let severeJankFramesCount = 0;
+let prevTotalTrailShifts = 0;
+
 let liveMetrics = {
   fps: 60,
   frameTimeMs: 16.6,
   maxIntervalMs: 16.6,
+  p50IntervalMs: 16.6,
+  p95IntervalMs: 16.6,
+  p99IntervalMs: 16.6,
+  jankFrames: 0,
+  severeJankFrames: 0,
+  trailShiftsPerSec: 0,
   cpuMs: 1.0,
   gpuMs: 15.6,
   drawCalls: 0,
@@ -789,8 +801,20 @@ function animate(rafTimestamp) {
   requestAnimationFrame(animate);
 
   const tFrameStart = performance.now();
-  const rafDelta = tFrameStart - prevRafTime;
+  const rafDelta = (prevRafTime > 0) ? (tFrameStart - prevRafTime) : 16.6;
   prevRafTime = tFrameStart;
+
+  frameIntervalHistory.push(rafDelta);
+  if (frameIntervalHistory.length > 240) {
+    frameIntervalHistory.shift();
+  }
+
+  if (rafDelta > 22.0) {
+    jankFramesCount++;
+  }
+  if (rafDelta > 35.0) {
+    severeJankFramesCount++;
+  }
   if (rafDelta > maxFrameIntervalMs) {
     maxFrameIntervalMs = rafDelta;
   }
@@ -864,10 +888,28 @@ function animate(rafTimestamp) {
     const calls = renderer.info.render.calls;
     const triangles = renderer.info.render.triangles;
 
+    // Percentiles of true frame intervals
+    const sortedIntervals = [...frameIntervalHistory].sort((a, b) => a - b);
+    const p50 = sortedIntervals.length > 0 ? Math.round(sortedIntervals[Math.floor(sortedIntervals.length * 0.50)] * 10) / 10 : 16.6;
+    const p95 = sortedIntervals.length > 0 ? Math.round(sortedIntervals[Math.floor(sortedIntervals.length * 0.95)] * 10) / 10 : 16.6;
+    const p99 = sortedIntervals.length > 0 ? Math.round(sortedIntervals[Math.floor(sortedIntervals.length * 0.99)] * 10) / 10 : 16.6;
+
+    // Kinematic trail shifts rate
+    const currentTotalShifts = ribbons.reduce((sum, r) => sum + (r.shiftCount || 0), 0);
+    const shiftsInWindow = currentTotalShifts - prevTotalTrailShifts;
+    prevTotalTrailShifts = currentTotalShifts;
+    const trailShiftsPerSec = Math.round((shiftsInWindow / (sampleElapsed / 1000)) * 10) / 10;
+
     liveMetrics = {
       fps: avgFps,
       frameTimeMs: avgFrameTime,
       maxIntervalMs: maxInterval,
+      p50IntervalMs: p50,
+      p95IntervalMs: p95,
+      p99IntervalMs: p99,
+      jankFrames: jankFramesCount,
+      severeJankFrames: severeJankFramesCount,
+      trailShiftsPerSec: trailShiftsPerSec,
       cpuMs: avgCpu,
       gpuMs: avgGpu,
       drawCalls: calls,
@@ -879,24 +921,29 @@ function animate(rafTimestamp) {
       perfFpsEl.style.color = avgFps >= 55 ? '#48bb78' : (avgFps >= 35 ? '#ecc94b' : '#f56565');
     }
     if (perfFrameTimeEl) {
-      perfFrameTimeEl.textContent = `${avgFrameTime.toFixed(1)}ms (max: ${maxInterval.toFixed(0)}ms)`;
+      perfFrameTimeEl.textContent = `${avgFrameTime.toFixed(1)}ms (p95: ${p95.toFixed(0)}ms, max: ${maxInterval.toFixed(0)}ms)`;
     }
     if (perfCpuEl) perfCpuEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms`;
     if (perfGpuEl) perfGpuEl.textContent = `GPU: ${avgGpu.toFixed(1)}ms`;
     if (perfDrawsEl) perfDrawsEl.textContent = `${calls} calls · ${(triangles / 1000).toFixed(1)}k tris`;
-    if (perfFboEl) perfFboEl.textContent = `${currentFboSize}px`;
+    if (perfFboEl) perfFboEl.textContent = `${currentFboSize}px · Trail: ${trailShiftsPerSec}Hz`;
 
     frameCounter = 0;
     accumCpuMs = 0;
     accumGpuMs = 0;
     accumFrameMs = 0;
     maxFrameIntervalMs = 0;
+    jankFramesCount = 0;
+    severeJankFramesCount = 0;
     lastPerfSampleTime = now;
   }
 
   // Periodic report to server every 1.5s
   if (now - lastPostTime >= 1500) {
     lastPostTime = now;
+    console.log(
+      `[PERF LOG] FPS: ${liveMetrics.fps} | Frame: ${liveMetrics.frameTimeMs}ms (p95: ${liveMetrics.p95IntervalMs}ms, max: ${liveMetrics.maxIntervalMs}ms) | CPU: ${liveMetrics.cpuMs}ms | GPU: ${liveMetrics.gpuMs}ms | Trail shifts: ${liveMetrics.trailShiftsPerSec} Hz | Janks: ${liveMetrics.jankFrames}`
+    );
     sendPerfTelemetry({
       ...liveMetrics,
       timestamp: Date.now(),

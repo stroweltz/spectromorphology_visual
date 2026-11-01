@@ -26,7 +26,7 @@ export class FishRibbon {
     // ── OOP Component Composition ──
     this.agent = new KinematicBrushAgent(options);
     this.bifurcation = new BifurcationController(options);
-    this.trail = new TrailHistory(this._segments, options);
+    this.trail = new TrailHistory(this._segments, options, this.bifurcation.currentWidth);
     this.renderer = new RibbonMeshRenderer(this._segments, options);
   }
 
@@ -50,6 +50,10 @@ export class FishRibbon {
 
   get splitWidths() {
     return this.trail.splitWidths;
+  }
+
+  get shiftCount() {
+    return this.trail.shiftCountA;
   }
 
   get splitState() {
