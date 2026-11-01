@@ -314,7 +314,8 @@ export class FishRibbon {
       segDist,
       this.trail.fixedPathTrail,
       clampedDelta,
-      this.agent.currentV
+      this.agent.currentV,
+      this.agent.headingAngle
     );
 
     // 4. Update Three.js Ribbon Geometries & Attributes
@@ -326,7 +327,9 @@ export class FishRibbon {
       this.bifurcation.state,
       this.agent.headingAngle,
       this.trail.lateralOffsetsA,
-      this.trail.lateralOffsetsB
+      this.trail.lateralOffsetsB,
+      this.trail.tangentsA,
+      this.trail.tangentsB
     );
   }
 

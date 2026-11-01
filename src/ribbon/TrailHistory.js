@@ -27,10 +27,12 @@ export class TrailHistory {
     // Primary Spine & Live Widths for Mesh (Head A)
     this.spine = [];
     this.widths = new Float32Array(this.segments);
+    this.tangentsA = [];
 
     // Split Branch Spine & Live Widths for Mesh (Head B)
     this.splitSpine = [];
     this.splitWidths = new Float32Array(this.segments);
+    this.tangentsB = [];
 
     // Preallocated Lateral Undulation Offsets (0 allocations during runtime)
     this.lateralOffsetsA = new Float32Array(this.segments);
@@ -60,6 +62,8 @@ export class TrailHistory {
     this.shiftCountB = 0;
     this.prevHeadAPos = new THREE.Vector2();
     this.prevHeadBPos = new THREE.Vector2();
+    this._lastStepStartA = new THREE.Vector2();
+    this._lastStepStartB = new THREE.Vector2();
     this.prevRecordedPosA = new THREE.Vector2();
     this.prevRecordedPosB = new THREE.Vector2();
 
@@ -72,19 +76,35 @@ export class TrailHistory {
     this._initSpines(options, initialWidth);
   }
 
+  get tangents() {
+    return this.tangentsA;
+  }
+
+  get splitTangents() {
+    return this.tangentsB;
+  }
+
   _initSpines(options, initialWidth) {
     const initR = options.pathRadius ?? 0.42;
     const phase = options.phaseOffset ?? 0.0;
     const headPos = new THREE.Vector2(Math.cos(phase) * initR, Math.sin(phase) * initR);
     const heading = phase + Math.PI * 0.5;
     const initDir = new THREE.Vector2(Math.cos(heading), Math.sin(heading));
+    const backDir = new THREE.Vector2(-initDir.x, -initDir.y);
     const initSegDist = this.trailLength / Math.max(1, this.segments - 1);
     const initW = (initialWidth !== null && initialWidth !== undefined) ? initialWidth : (options.maxWidth ?? 0.08);
+
+    this.spine = [];
+    this.splitSpine = [];
+    this.tangentsA = [];
+    this.tangentsB = [];
 
     for (let i = 0; i < this.segments; i++) {
       const p = headPos.clone().addScaledVector(initDir, -i * initSegDist);
       this.spine.push(p);
       this.splitSpine.push(p.clone());
+      this.tangentsA.push(backDir.clone());
+      this.tangentsB.push(backDir.clone());
       this.widths[i] = initW;
       this.splitWidths[i] = initW;
     }
@@ -99,23 +119,65 @@ export class TrailHistory {
 
     this.prevHeadAPos.copy(headPos);
     this.prevHeadBPos.copy(headPos);
+    this._lastStepStartA.copy(headPos);
+    this._lastStepStartB.copy(headPos);
     this.prevRecordedPosA.copy(headPos);
     this.prevRecordedPosB.copy(headPos);
   }
 
   /**
-   * Evaluates a 2D Catmull-Rom spline at parameter t in [0, 1].
+   * Evaluates a 2D Catmull-Rom / Cardinal spline position and analytical normalized tangent
+   * at parameter t in [0, 1].
+   *
    * The curve passes through p1 at t=0 and p2 at t=1, with C^1 continuous derivative.
+   * Analytical tangents eliminate central-difference wobble on sharp corners and boundary pops at tails.
+   *
+   * @param {THREE.Vector2} p0
+   * @param {THREE.Vector2} p1
+   * @param {THREE.Vector2} p2
+   * @param {THREE.Vector2} p3
+   * @param {number} t
+   * @param {THREE.Vector2} outPos
+   * @param {THREE.Vector2} [outTangent]
+   * @param {number} [tension=0.0] - 0.0 = standard Catmull-Rom
    */
-  _evalCatmullRom(p0, p1, p2, p3, t, out) {
+  _evalSpline(p0, p1, p2, p3, t, outPos, outTangent = null, tension = 0.0) {
+    const s = (1.0 - tension) * 0.5;
     const t2 = t * t;
     const t3 = t2 * t;
-    const a0 = -0.5 * t3 + t2 - 0.5 * t;
-    const a1 =  1.5 * t3 - 2.5 * t2 + 1.0;
-    const a2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
-    const a3 =  0.5 * t3 - 0.5 * t2;
-    out.x = a0 * p0.x + a1 * p1.x + a2 * p2.x + a3 * p3.x;
-    out.y = a0 * p0.y + a1 * p1.y + a2 * p2.y + a3 * p3.y;
+
+    const a0 = -s * t3 + 2.0 * s * t2 - s * t;
+    const a1 = (2.0 - s) * t3 + (s - 3.0) * t2 + 1.0;
+    const a2 = (s - 2.0) * t3 + (3.0 - 2.0 * s) * t2 + s * t;
+    const a3 = s * t3 - s * t2;
+
+    outPos.x = a0 * p0.x + a1 * p1.x + a2 * p2.x + a3 * p3.x;
+    outPos.y = a0 * p0.y + a1 * p1.y + a2 * p2.y + a3 * p3.y;
+
+    if (outTangent) {
+      const da0 = -3.0 * s * t2 + 4.0 * s * t - s;
+      const da1 = 3.0 * (2.0 - s) * t2 + 2.0 * (s - 3.0) * t;
+      const da2 = 3.0 * (s - 2.0) * t2 + 2.0 * (3.0 - 2.0 * s) * t + s;
+      const da3 = 3.0 * s * t2 - 2.0 * s * t;
+
+      const tx = da0 * p0.x + da1 * p1.x + da2 * p2.x + da3 * p3.x;
+      const ty = da0 * p0.y + da1 * p1.y + da2 * p2.y + da3 * p3.y;
+
+      const len = Math.hypot(tx, ty);
+      if (len > 0.00001) {
+        // Oriented backwards along spine from head towards tail (matches -heading)
+        outTangent.x = -tx / len;
+        outTangent.y = -ty / len;
+      } else {
+        outTangent.x = -(p2.x - p1.x);
+        outTangent.y = -(p2.y - p1.y);
+        const l2 = Math.hypot(outTangent.x, outTangent.y);
+        if (l2 > 0.00001) {
+          outTangent.x /= l2;
+          outTangent.y /= l2;
+        }
+      }
+    }
   }
 
   /**
@@ -126,16 +188,18 @@ export class TrailHistory {
   onTriggerSplit(headB) {
     for (let i = 0; i < this.segments; i++) {
       this.splitSpine[i].copy(this.spine[i]);
+      this.tangentsB[i].copy(this.tangentsA[i]);
       this.splitWidths[i] = 0.0;
     }
     for (let i = 0; i < this._historyCap; i++) {
       this._historyB[i].copy(this._historyA[i]);
       this._historyWidthsB[i] = 0.0;
     }
-    this.accumDistB = 0.0;
+    this.accumDistB = this.accumDistA;
     if (headB) {
       this.prevRecordedPosB.copy(headB);
       this.prevHeadBPos.copy(headB);
+      this._lastStepStartB.copy(headB);
     }
   }
 
@@ -164,11 +228,14 @@ export class TrailHistory {
   reset(initialPos, initialHeading, trailLength, initialWidth) {
     this.trailLength = trailLength;
     const initDir = new THREE.Vector2(Math.cos(initialHeading), Math.sin(initialHeading));
+    const backDir = new THREE.Vector2(-initDir.x, -initDir.y);
     const initSegDist = this.trailLength / Math.max(1, this.segments - 1);
 
     for (let i = 0; i < this.segments; i++) {
       this.spine[i].copy(initialPos).addScaledVector(initDir, -i * initSegDist);
       this.splitSpine[i].copy(this.spine[i]);
+      this.tangentsA[i].copy(backDir);
+      this.tangentsB[i].copy(backDir);
       this.widths[i] = initialWidth;
       this.splitWidths[i] = initialWidth;
     }
@@ -185,6 +252,8 @@ export class TrailHistory {
     this.accumDistB = 0.0;
     this.prevHeadAPos.copy(initialPos);
     this.prevHeadBPos.copy(initialPos);
+    this._lastStepStartA.copy(initialPos);
+    this._lastStepStartB.copy(initialPos);
     this.prevRecordedPosA.copy(initialPos);
     this.prevRecordedPosB.copy(initialPos);
   }
@@ -201,21 +270,24 @@ export class TrailHistory {
    * @param {boolean} isFixedPath
    * @param {number} dt
    * @param {number} currentV
+   * @param {number} [headingAngle=0.0]
    */
-  update(headA, headB, headWidthA, headWidthB, bifurcation, segDist, isFixedPath, dt, currentV) {
+  update(headA, headB, headWidthA, headWidthB, bifurcation, segDist, isFixedPath, dt, currentV, headingAngle = 0.0) {
     if (isFixedPath) {
       // ── 1. Accumulate Head A Distance & Commit Milestones ──
+      // Commits milestones along the exact frame-to-frame movement segment to eliminate chord-cutting faceting
       const dStepA = headA.distanceTo(this.prevHeadAPos);
+      let stepRemA = dStepA;
+      this._lastStepStartA.copy(this.prevHeadAPos);
       this.prevHeadAPos.copy(headA);
-      this.accumDistA += dStepA;
 
       let itersA = 8;
-      while (this.accumDistA >= segDist && itersA-- > 0) {
+      while (this.accumDistA + stepRemA >= segDist && itersA-- > 0) {
         this.shiftCountA++;
-        const t = THREE.MathUtils.clamp(segDist / Math.max(0.00001, this.accumDistA), 0.0, 1.0);
-        this._tmpHead.lerpVectors(this.prevRecordedPosA, headA, t);
-        this.prevRecordedPosA.copy(this._tmpHead);
-        this.accumDistA -= segDist;
+        const needed = segDist - this.accumDistA;
+        const frac = (stepRemA > 0.00001) ? THREE.MathUtils.clamp(needed / stepRemA, 0.0, 1.0) : 0.0;
+
+        this._tmpHead.lerpVectors(this._lastStepStartA, headA, frac);
 
         for (let m = this._historyCap - 1; m > 0; m--) {
           this._historyA[m].copy(this._historyA[m - 1]);
@@ -223,47 +295,49 @@ export class TrailHistory {
         }
         this._historyA[0].copy(this._tmpHead);
         this._historyWidthsA[0] = headWidthA;
-      }
 
-      // ── 2. Continuous Sub-Segment Sliding along Catmull-Rom Spline for Head A ──
+        this.accumDistA = 0.0;
+        stepRemA -= needed;
+        this._lastStepStartA.copy(this._tmpHead);
+      }
+      this.accumDistA += stepRemA;
+
+      // ── 2. Continuous Sub-Segment Sliding along Spline for Head A ──
       const alphaA = THREE.MathUtils.clamp(this.accumDistA / Math.max(0.00001, segDist), 0.0, 1.0);
 
-      // Forward extrapolation point ahead of head along direction
+      // Forward extrapolation point ahead of H_0 by segDist along motion direction
       this._tmpDir.subVectors(headA, this._historyA[0]);
       const lenDirA = this._tmpDir.length();
       if (lenDirA > 0.00001) {
-        this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, segDist / lenDirA);
+        this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, (segDist - this.accumDistA) / lenDirA);
       } else {
-        this._forwardPtA.copy(headA);
+        this._forwardPtA.copy(headA).addScaledVector(
+          new THREE.Vector2(Math.cos(headingAngle), Math.sin(headingAngle)),
+          segDist - this.accumDistA
+        );
       }
 
       this.spine[0].copy(headA);
       this.widths[0] = headWidthA;
+      this.tangentsA[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
 
+      // Vertebrae 1..N-1: Each vertebra i is uniformly spaced at i * segDist behind head,
+      // sliding continuously between milestone H_i and H_{i-1} with parameter alphaA.
       for (let i = 1; i < this.segments; i++) {
-        if (i === 1) {
-          // Between Milestone 0 and headA
-          const p0 = this._historyA[1];
-          const p1 = this._historyA[0];
-          const p2 = headA;
-          const p3 = this._forwardPtA;
-          this._evalCatmullRom(p0, p1, p2, p3, alphaA, this.spine[1]);
-          this.widths[1] = THREE.MathUtils.lerp(this._historyWidthsA[0], headWidthA, alphaA);
-        } else {
-          const k = i - 1;
-          const p0 = this._historyA[k + 1];
-          const p1 = this._historyA[k];
-          const p2 = this._historyA[k - 1];
-          const p3 = (k - 2 >= 0) ? this._historyA[k - 2] : headA;
-          this._evalCatmullRom(p0, p1, p2, p3, alphaA, this.spine[i]);
-          this.widths[i] = THREE.MathUtils.lerp(this._historyWidthsA[k], this._historyWidthsA[k - 1], alphaA);
-        }
+        const p1 = this._historyA[i];
+        const p2 = this._historyA[i - 1];
+        const p0 = (i + 1 < this._historyCap) ? this._historyA[i + 1] : this._historyA[i];
+        const p3 = (i - 2 >= 0) ? this._historyA[i - 2] : this._forwardPtA;
+
+        this._evalSpline(p0, p1, p2, p3, alphaA, this.spine[i], this.tangentsA[i], 0.0);
+        this.widths[i] = THREE.MathUtils.lerp(this._historyWidthsA[i], this._historyWidthsA[i - 1], alphaA);
       }
 
       // ── 3. Accumulate Head B Distance & Commit Milestones ──
       const dStepB = headB.distanceTo(this.prevHeadBPos);
+      let stepRemB = dStepB;
+      this._lastStepStartB.copy(this.prevHeadBPos);
       this.prevHeadBPos.copy(headB);
-      this.accumDistB += dStepB;
 
       const isSplitActive = (bifurcation.state !== 'CLOSED');
       if (isSplitActive) {
@@ -271,12 +345,12 @@ export class TrailHistory {
       }
 
       let itersB = 8;
-      while (this.accumDistB >= segDist && itersB-- > 0) {
+      while (this.accumDistB + stepRemB >= segDist && itersB-- > 0) {
         this.shiftCountB++;
-        const t = THREE.MathUtils.clamp(segDist / Math.max(0.00001, this.accumDistB), 0.0, 1.0);
-        this._tmpHead.lerpVectors(this.prevRecordedPosB, headB, t);
-        this.prevRecordedPosB.copy(this._tmpHead);
-        this.accumDistB -= segDist;
+        const needed = segDist - this.accumDistB;
+        const frac = (stepRemB > 0.00001) ? THREE.MathUtils.clamp(needed / stepRemB, 0.0, 1.0) : 0.0;
+
+        this._tmpHead.lerpVectors(this._lastStepStartB, headB, frac);
 
         for (let m = this._historyCap - 1; m > 0; m--) {
           this._historyB[m].copy(this._historyB[m - 1]);
@@ -296,20 +370,29 @@ export class TrailHistory {
             bifurcation.completeDrain();
           }
         }
-      }
 
-      // ── 4. Continuous Sub-Segment Sliding along Catmull-Rom Spline for Head B ──
+        this.accumDistB = 0.0;
+        stepRemB -= needed;
+        this._lastStepStartB.copy(this._tmpHead);
+      }
+      this.accumDistB += stepRemB;
+
+      // ── 4. Continuous Sub-Segment Sliding along Spline for Head B ──
       const alphaB = THREE.MathUtils.clamp(this.accumDistB / Math.max(0.00001, segDist), 0.0, 1.0);
 
       this._tmpDir.subVectors(headB, this._historyB[0]);
       const lenDirB = this._tmpDir.length();
       if (lenDirB > 0.00001) {
-        this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, segDist / lenDirB);
+        this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, (segDist - this.accumDistB) / lenDirB);
       } else {
-        this._forwardPtB.copy(headB);
+        this._forwardPtB.copy(headB).addScaledVector(
+          new THREE.Vector2(Math.cos(headingAngle), Math.sin(headingAngle)),
+          segDist - this.accumDistB
+        );
       }
 
       this.splitSpine[0].copy(headB);
+      this.tangentsB[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
       if (!isSplitActive || (bifurcation.state === 'DRAINING' && bifurcation.splitDrainSteps > 0)) {
         this.splitWidths[0] = 0.0;
       } else {
@@ -317,23 +400,13 @@ export class TrailHistory {
       }
 
       for (let i = 1; i < this.segments; i++) {
-        if (i === 1) {
-          const p0 = this._historyB[1];
-          const p1 = this._historyB[0];
-          const p2 = headB;
-          const p3 = this._forwardPtB;
-          this._evalCatmullRom(p0, p1, p2, p3, alphaB, this.splitSpine[1]);
-          const targetW = (bifurcation.state === 'DRAINING' && bifurcation.splitDrainSteps > 0) ? 0.0 : headWidthB;
-          this.splitWidths[1] = THREE.MathUtils.lerp(this._historyWidthsB[0], targetW, alphaB);
-        } else {
-          const k = i - 1;
-          const p0 = this._historyB[k + 1];
-          const p1 = this._historyB[k];
-          const p2 = this._historyB[k - 1];
-          const p3 = (k - 2 >= 0) ? this._historyB[k - 2] : headB;
-          this._evalCatmullRom(p0, p1, p2, p3, alphaB, this.splitSpine[i]);
-          this.splitWidths[i] = THREE.MathUtils.lerp(this._historyWidthsB[k], this._historyWidthsB[k - 1], alphaB);
-        }
+        const p1 = this._historyB[i];
+        const p2 = this._historyB[i - 1];
+        const p0 = (i + 1 < this._historyCap) ? this._historyB[i + 1] : this._historyB[i];
+        const p3 = (i - 2 >= 0) ? this._historyB[i - 2] : this._forwardPtB;
+
+        this._evalSpline(p0, p1, p2, p3, alphaB, this.splitSpine[i], this.tangentsB[i], 0.0);
+        this.splitWidths[i] = THREE.MathUtils.lerp(this._historyWidthsB[i], this._historyWidthsB[i - 1], alphaB);
       }
 
       this.lateralOffsetsA.fill(0.0);
@@ -381,6 +454,19 @@ export class TrailHistory {
         bifurcation.splitDrainSteps += shiftB;
         if (bifurcation.splitDrainSteps >= this.segments) {
           bifurcation.completeDrain();
+        }
+      }
+
+      for (let i = 0; i < this.segments; i++) {
+        if (i === 0) {
+          this.tangentsA[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
+          this.tangentsB[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
+        } else if (i === this.segments - 1) {
+          this.tangentsA[i].subVectors(this.spine[i], this.spine[i - 1]).normalize();
+          this.tangentsB[i].subVectors(this.splitSpine[i], this.splitSpine[i - 1]).normalize();
+        } else {
+          this.tangentsA[i].subVectors(this.spine[i + 1], this.spine[i - 1]).normalize();
+          this.tangentsB[i].subVectors(this.splitSpine[i + 1], this.splitSpine[i - 1]).normalize();
         }
       }
 

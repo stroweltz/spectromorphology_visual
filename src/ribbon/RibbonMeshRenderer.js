@@ -166,23 +166,25 @@ export class RibbonMeshRenderer {
    * @param {number} headingAngle
    * @param {Float32Array} lateralOffsetsA
    * @param {Float32Array} lateralOffsetsB
+   * @param {THREE.Vector2[]} [tangentsA]
+   * @param {THREE.Vector2[]} [tangentsB]
    */
-  update(spineA, widthsA, spineB, widthsB, splitState, headingAngle, lateralOffsetsA, lateralOffsetsB) {
+  update(spineA, widthsA, spineB, widthsB, splitState, headingAngle, lateralOffsetsA, lateralOffsetsB, tangentsA = null, tangentsB = null) {
     // 1. Update Main Ribbon Mesh Vertices
-    this._updateMeshGeometry(this.geometry, spineA, lateralOffsetsA, widthsA, this._centerline, false, headingAngle);
+    this._updateMeshGeometry(this.geometry, spineA, lateralOffsetsA, widthsA, this._centerline, false, headingAngle, splitState, tangentsA);
 
     // 2. Update Split Branch Ribbon Mesh Vertices
     if (splitState !== 'CLOSED') {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
       this.splitMaterial.uniforms.uOpacity.value = 0.92;
-      this._updateMeshGeometry(this.splitGeometry, spineB, lateralOffsetsB, widthsB, this._splitCenterline, true, headingAngle, splitState);
+      this._updateMeshGeometry(this.splitGeometry, spineB, lateralOffsetsB, widthsB, this._splitCenterline, true, headingAngle, splitState, tangentsB);
     } else {
       this.splitMesh.visible = false;
     }
   }
 
-  _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline, isSplitBranch, headingAngle, splitState) {
+  _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline, isSplitBranch, headingAngle, splitState, tangents = null) {
     const posAttr = geometry.attributes.position;
     const colAttr = geometry.attributes.color;
     const widthAttr = geometry.attributes.aWidth;
@@ -214,13 +216,17 @@ export class RibbonMeshRenderer {
       const s = i / (segs - 1);
       const curr = spine[i];
 
-      // Tangent along spine: leading tip (i=0) is locked to forward heading
-      if (i === 0) {
-        this._tmpTangent.set(-Math.cos(headingAngle), -Math.sin(headingAngle));
-      } else if (i === segs - 1) {
-        this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
+      // Tangent along spine: prefer exact analytical tangent from C^1 spline
+      if (tangents && tangents[i]) {
+        this._tmpTangent.copy(tangents[i]);
       } else {
-        this._tmpTangent.subVectors(spine[i + 1], spine[i - 1]).normalize();
+        if (i === 0) {
+          this._tmpTangent.set(-Math.cos(headingAngle), -Math.sin(headingAngle));
+        } else if (i === segs - 1) {
+          this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
+        } else {
+          this._tmpTangent.subVectors(spine[i + 1], spine[i - 1]).normalize();
+        }
       }
       this._tmpNormal.set(-this._tmpTangent.y, this._tmpTangent.x);
 
