@@ -700,9 +700,9 @@ export class FishRibbon {
     }
 
     // "в режиме раздвоения их толщины должны быть заведомо поменьше, чтобы не перекрывать промежуток между ними"
-    const twinBranchScale = THREE.MathUtils.lerp(1.0, 0.62, this.splitProgress);
-    const headWidthA = effectiveHeadWidth * twinBranchScale * (1.0 + 0.12 * Math.sin(time * 2.2 + this.splitSeed));
-    const headWidthB = effectiveHeadWidth * twinBranchScale * (1.0 - 0.12 * Math.sin(time * 2.2 + this.splitSeed));
+    const twinBranchScale = THREE.MathUtils.lerp(1.0, 0.65, this.splitProgress);
+    const headWidthA = effectiveHeadWidth * twinBranchScale;
+    const headWidthB = effectiveHeadWidth * twinBranchScale;
     this.currentWidth = headWidthA;
     this.baseWidth = this.currentWidth;
 
@@ -730,29 +730,19 @@ export class FishRibbon {
     const waveOffset = (this.waveAmp > 0.0001) ? (this.waveAmp * Math.sin(spatialAngle)) : 0.0;
 
     // Twin heads diverge symmetrically from the central guide axis:
-    // "им нужно двигаться примерно в одну сторону, чтобы в будущем сойтись, но пока это не произошло,
-    // могут быть небольшие разницы в движении (отдаления и приближения к общей оси)."
+    // Pure, serene calligraphic divergence along the normal axis (no forward/backward sawing, no high-frequency tremor)
     const S = this.splitProgress;
     const halfSep = this.splitSeparation * 0.5;
-
-    // Independent organic drift for each head (small distances away/towards axis + leading/lagging)
-    const wanderA = halfSep * 0.28 * Math.sin(time * 1.7 + this.splitSeed);
-    const wanderB = halfSep * 0.28 * Math.sin(time * 2.4 + this.splitSeed * 1.5);
-    const leadA   = halfSep * 0.22 * Math.sin(time * 1.3 + this.splitSeed);
-    const leadB   = -leadA;
-
-    const offsetA = S * (halfSep + wanderA);
-    const offsetB = -S * (halfSep + wanderB);
-    const fwdA    = S * leadA;
-    const fwdB    = S * leadB;
+    const offsetA = S * halfSep;
+    const offsetB = -S * halfSep;
 
     this.headA.set(
-      guidePos.x + nx * (offsetA + waveOffset) + tx * fwdA,
-      guidePos.y + ny * (offsetA + waveOffset) + ty * fwdA
+      guidePos.x + nx * (offsetA + waveOffset),
+      guidePos.y + ny * (offsetA + waveOffset)
     );
     this.headB.set(
-      guidePos.x + nx * (offsetB + waveOffset) + tx * fwdB,
-      guidePos.y + ny * (offsetB + waveOffset) + ty * fwdB
+      guidePos.x + nx * (offsetB + waveOffset),
+      guidePos.y + ny * (offsetB + waveOffset)
     );
 
     this.spine[0].copy(this.headA);
@@ -984,15 +974,9 @@ export class FishRibbon {
     for (let i = 0; i < segs; i++) {
       const curr = spine[i];
 
-      // Central difference tangent of spine
+      // Central difference tangent of spine: leading tip (i=0) is strictly locked to forward heading
       if (i === 0) {
-        this._tmpTangent.subVectors(spine[1], curr);
-        const lenSq = this._tmpTangent.lengthSq();
-        if (lenSq < 0.000025) {
-          this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
-        } else {
-          this._tmpTangent.multiplyScalar(1.0 / Math.sqrt(lenSq));
-        }
+        this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
       } else if (i === segs - 1) {
         this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
       } else {
@@ -1005,23 +989,17 @@ export class FishRibbon {
       c.copy(curr).addScaledVector(this._tmpNormal, lateralOffsets[i]);
     }
 
-    // Color gradient setup for split branch: 5-segment smooth transition
-    const blendDist = segDist * 5.0;
+    // Color gradient setup for split branch: generous 8-segment smooth organic transition
+    const blendDist = segDist * 8.0;
 
     // Pass 2: Extrude ribbon vertices perpendicular to the undulating centerline
     for (let i = 0; i < segs; i++) {
       const s = i / (segs - 1);
       const c = centerline[i];
 
-      // Tangent along undulating centerline
+      // Tangent along undulating centerline: leading tip (i=0) is strictly locked to forward heading
       if (i === 0) {
-        this._tmpTangent.subVectors(centerline[1], c);
-        const lenSq = this._tmpTangent.lengthSq();
-        if (lenSq < 0.000025) {
-          this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
-        } else {
-          this._tmpTangent.multiplyScalar(1.0 / Math.sqrt(lenSq));
-        }
+        this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
       } else if (i === segs - 1) {
         this._tmpTangent.subVectors(c, centerline[i - 1]).normalize();
       } else {
