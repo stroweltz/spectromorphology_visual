@@ -1,3 +1,35 @@
+// --- App Version & Automatic Cache Invalidation ---
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0';
+const STORAGE_VERSION_KEY = 'spectromorphology_app_version';
+
+(function handleVersionUpgrade() {
+  try {
+    const storedVersion = localStorage.getItem(STORAGE_VERSION_KEY);
+    if (storedVersion && storedVersion !== APP_VERSION) {
+      console.log(`[Spectromorphology] Detected version upgrade: ${storedVersion} -> ${APP_VERSION}. Purging browser cache...`);
+
+      // 1. Purge Cache Storage API
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        caches.keys().then((names) => {
+          names.forEach((name) => caches.delete(name));
+        });
+      }
+
+      // 2. Unregister legacy / stale Service Workers
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          for (const reg of registrations) {
+            reg.unregister();
+          }
+        });
+      }
+    }
+    localStorage.setItem(STORAGE_VERSION_KEY, APP_VERSION);
+  } catch (e) {
+    // Ignore in restrictive sandboxes
+  }
+})();
+
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { FishRibbon } from './ribbon/FishRibbon.js';
@@ -317,6 +349,7 @@ function rerollBrushWidths() {
 }
 
 const gui = new GUI({ title: 'Параметры Визуализатора' });
+gui.domElement.classList.add('gui-drawer-panel');
 
 // ── Mobile Drawer Integration (Slide-out panel for <= 768px) ──
 const mobileHeader = document.createElement('div');
@@ -346,30 +379,48 @@ function closeMobileDrawer() {
   if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
 }
 
+let lastToggleTime = 0;
+function toggleMobileDrawer() {
+  const now = Date.now();
+  if (now - lastToggleTime < 200) return;
+  lastToggleTime = now;
+  if (document.body.classList.contains('gui-drawer-open')) {
+    closeMobileDrawer();
+  } else {
+    openMobileDrawer();
+  }
+}
+
 if (toggleBtn) {
   toggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (document.body.classList.contains('gui-drawer-open')) {
-      closeMobileDrawer();
-    } else {
-      openMobileDrawer();
-    }
+    toggleMobileDrawer();
+  });
+  toggleBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMobileDrawer();
   });
 }
 
 if (backdrop) {
-  backdrop.addEventListener('click', closeMobileDrawer);
-  backdrop.addEventListener('touchstart', (e) => {
+  const handleBackdrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     closeMobileDrawer();
-  }, { passive: false });
+  };
+  backdrop.addEventListener('click', handleBackdrop);
+  backdrop.addEventListener('touchend', handleBackdrop);
 }
 
 if (closeBtn) {
-  closeBtn.addEventListener('click', (e) => {
+  const handleClose = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     closeMobileDrawer();
-  });
+  };
+  closeBtn.addEventListener('click', handleClose);
+  closeBtn.addEventListener('touchend', handleClose);
 }
 
 // Swipe right to close gesture on mobile drawer
@@ -380,7 +431,7 @@ let touchDeltaY = 0;
 
 gui.domElement.addEventListener('touchstart', (e) => {
   // Ignore gestures on interactive inputs/sliders
-  if (e.target.closest('.lil-slider, input, select, button, .lil-display')) {
+  if (e.target.closest('.slider, .display, input, select, button, .name, .lil-slider, .lil-display')) {
     touchStartX = -1;
     return;
   }

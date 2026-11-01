@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Spectromorphology — Калейдоскопический бумажный визуализатор</title>
+
+  <!-- HTTP Cache Invalidation (Prevent stale HTML on release updates) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <style>
     * {
       box-sizing: border-box;
@@ -239,9 +245,9 @@
       }
 
       /* Mobile Drawer (Slide-out lil-gui Panel) */
-      .lil-gui.lil-root,
-      .lil-gui.lil-root.lil-auto-place,
-      .lil-gui.lil-root.autoPlace {
+      .gui-drawer-panel,
+      .lil-gui.root,
+      .lil-gui.autoPlace {
         position: fixed !important;
         top: 0 !important;
         right: 0 !important;
@@ -269,15 +275,16 @@
         box-sizing: border-box !important;
       }
 
-      body.gui-drawer-open .lil-gui.lil-root,
-      body.gui-drawer-open .lil-gui.lil-root.lil-auto-place,
-      body.gui-drawer-open .lil-gui.lil-root.autoPlace {
+      body.gui-drawer-open .gui-drawer-panel,
+      body.gui-drawer-open .lil-gui.root,
+      body.gui-drawer-open .lil-gui.autoPlace {
         transform: translateX(0) !important;
         box-shadow: -15px 0 45px rgba(0, 0, 0, 0.7) !important;
       }
 
       /* Hide Default Root Title on Mobile (Replaced by Custom Header) */
-      .lil-gui.lil-root > .lil-title {
+      .gui-drawer-panel > .title,
+      .lil-gui.root > .title {
         display: none !important;
       }
 
@@ -327,7 +334,8 @@
       }
 
       /* Scrollable Container with Smooth Scrolling and Safe Area */
-      .lil-gui.lil-root > .lil-children {
+      .gui-drawer-panel > .children,
+      .lil-gui.root > .children {
         flex: 1 1 auto !important;
         min-height: 0 !important;
         overflow-y: auto !important;
@@ -338,13 +346,16 @@
         padding-left: 2px !important;
         padding-right: 2px !important;
       }
-      .lil-gui.lil-root > .lil-children::-webkit-scrollbar {
+      .gui-drawer-panel > .children::-webkit-scrollbar,
+      .lil-gui.root > .children::-webkit-scrollbar {
         width: 6px;
       }
-      .lil-gui.lil-root > .lil-children::-webkit-scrollbar-track {
+      .gui-drawer-panel > .children::-webkit-scrollbar-track,
+      .lil-gui.root > .children::-webkit-scrollbar-track {
         background: transparent;
       }
-      .lil-gui.lil-root > .lil-children::-webkit-scrollbar-thumb {
+      .gui-drawer-panel > .children::-webkit-scrollbar-thumb,
+      .lil-gui.root > .children::-webkit-scrollbar-thumb {
         background: rgba(255, 255, 255, 0.2);
         border-radius: 3px;
       }
@@ -362,7 +373,7 @@
       }
 
       /* Folder Headers */
-      .lil-gui .lil-title {
+      .lil-gui .title {
         height: auto !important;
         min-height: 44px !important;
         display: flex !important;
@@ -376,18 +387,18 @@
         border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
         touch-action: manipulation;
       }
-      .lil-gui .lil-title:active {
+      .lil-gui .title:active {
         background: rgba(255, 255, 255, 0.08) !important;
       }
 
       /* Controllers / Rows (min-height >= 44px for Touch Targets) */
-      .lil-controller {
+      .lil-gui .controller {
         min-height: 44px !important;
         margin: 6px 0 !important;
         padding: 0 10px !important;
       }
 
-      .lil-controller > .lil-name {
+      .lil-gui .controller > .name {
         font-size: 13px !important;
         line-height: 1.35 !important;
         white-space: normal !important;
@@ -398,25 +409,25 @@
         color: #cbd5e1 !important;
       }
 
-      .lil-controller .lil-widget {
+      .lil-gui .controller .widget {
         min-height: 38px !important;
         display: flex !important;
         align-items: center !important;
       }
 
       /* Sliders */
-      .lil-controller.lil-number .lil-slider {
+      .lil-gui .controller.number .slider {
         height: 38px !important;
         background: rgba(45, 55, 75, 0.6) !important;
         border-radius: 6px !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
         touch-action: pan-y !important;
       }
-      .lil-controller.lil-number .lil-slider.lil-active {
+      .lil-gui .controller.number .slider.active {
         border-color: rgba(72, 187, 120, 0.5) !important;
         background: rgba(45, 55, 75, 0.85) !important;
       }
-      .lil-controller.lil-number .lil-fill {
+      .lil-gui .controller.number .fill {
         border-right-width: 3px !important;
         background: rgba(72, 187, 120, 0.3) !important;
         border-right-color: #48bb78 !important;
@@ -442,7 +453,7 @@
       }
 
       /* Checkboxes */
-      .lil-controller.lil-boolean {
+      .lil-gui .controller.boolean {
         cursor: pointer;
       }
       .lil-gui input[type="checkbox"] {
@@ -461,11 +472,11 @@
       }
 
       /* Select / Options */
-      .lil-controller.lil-option select {
+      .lil-gui .controller.option select {
         font-size: 16px !important;
         height: 38px !important;
       }
-      .lil-controller.lil-option .lil-display {
+      .lil-gui .controller.option .display {
         height: 38px !important;
         line-height: 38px !important;
         font-size: 13.5px !important;
@@ -476,7 +487,7 @@
       }
 
       /* Action Buttons */
-      .lil-gui .lil-controller button {
+      .lil-gui .controller button {
         height: 42px !important;
         min-height: 42px !important;
         font-size: 14px !important;
@@ -489,14 +500,14 @@
         touch-action: manipulation !important;
         transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease !important;
       }
-      .lil-gui .lil-controller button:active {
+      .lil-gui .controller button:active {
         background: rgba(65, 84, 120, 0.95) !important;
         border-color: rgba(72, 187, 120, 0.5) !important;
         transform: scale(0.98) !important;
       }
 
       /* Color Swatches */
-      .lil-controller.lil-color .lil-display {
+      .lil-gui .controller.color .display {
         height: 38px !important;
         border-radius: 6px !important;
         border: 1px solid rgba(255, 255, 255, 0.2) !important;
@@ -537,7 +548,7 @@
   <!-- HUD: Title, Description, Status and Live Telemetry -->
   <div id="hud">
     <h1>Spectromorphology</h1>
-    <p id="hud-subtitle">Мандала бумажных мазков · Рыбья кинематика</p>
+    <p id="hud-subtitle">Мандала бумажных мазков · Рыбья кинематика <span style="opacity:0.6;font-size:10.5px">v1.1.0</span></p>
     <div id="hud-debug">
       🖌 РЕЖИМ КИСТИ (DEBUG): ОДИНАРНАЯ ТРАЕКТОРИЯ И ОСИ СИММЕТРИИ
     </div>
@@ -550,7 +561,7 @@
       <span class="perf-divider perf-hide-md">|</span>
       <span id="perf-draws" class="perf-hide-md">-- calls · -- tris</span>
       <span class="perf-divider perf-hide-md">|</span>
-      <span id="perf-fbo" class="perf-hide-md perf-val-fbo">1536px</span>
+      <span id="perf-fbo" class="perf-hide-md perf-val-fbo">2560px</span>
     </div>
   </div>
 
