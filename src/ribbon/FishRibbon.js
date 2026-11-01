@@ -45,8 +45,10 @@ export class FishRibbon {
     this.splitState = 'CLOSED';                                 // 'CLOSED', 'OPENING', 'SUSTAINED', 'CLOSING', 'DRAINING'
     this.splitProgress = 0.0;                                   // 0.0 = merged single brush, 1.0 = fully split
     this.splitTimer = 0.0;
-    this.splitSegmentsSinceStart = 0;                           // History steps accumulated since split opened
-    this.splitDrainSteps = 0;                                   // History steps accumulated since heads merged
+    this.splitDistSinceStart = 0.0;                             // Continuous arclength traveled since split opened
+    this.splitDrainDist = 0.0;                                  // Continuous arclength traveled since heads merged
+    this.splitSegmentsSinceStart = 0;                           // Backward compatibility
+    this.splitDrainSteps = 0;
     this.currentSplitDuration = this.splitDuration;
     this.splitMaxCap = this.maxWidth;                           // Active upper width ceiling during bifurcation
     this._wasAboveThreshold = true;
@@ -382,6 +384,8 @@ export class FishRibbon {
     this.splitState = 'OPENING';
     this.splitProgress = (force && this.splitProgress > 0) ? this.splitProgress : 0.0;
     this.splitTimer = 0.0;
+    this.splitDistSinceStart = 0.0;
+    this.splitDrainDist = 0.0;
     this.splitSegmentsSinceStart = 0;
     this.splitDrainSteps = 0;
     this.currentSplitDuration = this.splitDuration * (0.85 + Math.random() * 0.3);
@@ -667,6 +671,7 @@ export class FishRibbon {
       if (t >= 1.0) {
         this.splitProgress = 0.0;
         this.splitState = 'DRAINING';
+        this.splitDrainDist = 0.0;
         this.splitDrainSteps = 0;
         this.splitTimer = 0.0;
       }
@@ -785,6 +790,18 @@ export class FishRibbon {
       this._prevHeadBPos.copy(this.headB);
       this._accumDistB += dStepB;
 
+      if (this.splitState !== 'CLOSED') {
+        this.splitDistSinceStart += dStepB;
+      }
+      if (this.splitState === 'DRAINING') {
+        this.splitDrainDist += dStepB;
+        if (this.splitDrainDist >= Math.min(this.segments * safeSegDist, this.splitDistSinceStart)) {
+          this.splitState = 'CLOSED';
+          this.splitProgress = 0.0;
+          this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
+        }
+      }
+
       let itersB = 20;
       while (this._accumDistB >= safeSegDist && itersB-- > 0) {
         const t = THREE.MathUtils.clamp(safeSegDist / Math.max(0.00001, this._accumDistB), 0.0, 1.0);
@@ -798,18 +815,6 @@ export class FishRibbon {
         }
         this._historyB[0].copy(this._tmpHead);
         this._historyWidthsB[0] = headWidthB;
-
-        if (this.splitState !== 'CLOSED') {
-          this.splitSegmentsSinceStart++;
-        }
-        if (this.splitState === 'DRAINING') {
-          this.splitDrainSteps++;
-          if (this.splitDrainSteps >= Math.min(this.segments, this.splitSegmentsSinceStart)) {
-            this.splitState = 'CLOSED';
-            this.splitProgress = 0.0;
-            this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
-          }
-        }
       }
 
       // Continuous sub-segment sliding phase [0, 1) along the historical polyline
@@ -831,11 +836,10 @@ export class FishRibbon {
       this.splitSpine[0].copy(this.headB);
 
       const isSplitActive = (this.splitState !== 'CLOSED');
-      const startDrain = this.splitDrainSteps;
-      const endFork = this.splitSegmentsSinceStart;
+      const taperLen = safeSegDist * 2.5;
 
       // Leading head vertebra (index 0)
-      if (!isSplitActive || (this.splitState === 'DRAINING' && startDrain > 0)) {
+      if (!isSplitActive || (this.splitState === 'DRAINING' && this.splitDrainDist > 0.0001)) {
         this.splitWidths[0] = 0.0;
       } else {
         this.splitWidths[0] = headWidthB;
@@ -847,30 +851,30 @@ export class FishRibbon {
         if (!isSplitActive) {
           this.splitWidths[i] = 0.0;
         } else {
-          const histIdx = i - 1;
           const wSample = THREE.MathUtils.lerp(this._historyWidthsB[i], this._historyWidthsB[i - 1], fracB);
 
-          // Segments in front of the merge junction: width = 0 (stroke A is already drawing this!)
-          if (this.splitState === 'DRAINING' && histIdx < startDrain) {
+          // Continuous arclength distance along the spine curve behind the head
+          const dBehind = (i - fracB) * safeSegDist;
+
+          // 1. In front of the merge junction during DRAINING: stroke A already draws this
+          if (this.splitState === 'DRAINING' && dBehind < this.splitDrainDist) {
             this.splitWidths[i] = 0.0;
           }
-          // Smooth taper at the merge junction (tail melting seamlessly into main stroke)
-          else if (this.splitState === 'DRAINING' && histIdx <= startDrain + 2) {
-            const tDrain = (histIdx - startDrain + 1) / 4.0;
-            const smoothTDrain = tDrain * tDrain * (3.0 - 2.0 * tDrain);
-            this.splitWidths[i] = wSample * smoothTDrain;
+          // 2. Continuous smooth taper at the merge junction (tail melts into main stroke)
+          else if (this.splitState === 'DRAINING' && dBehind <= this.splitDrainDist + taperLen) {
+            const t = THREE.MathUtils.clamp((dBehind - this.splitDrainDist) / taperLen, 0.0, 1.0);
+            this.splitWidths[i] = wSample * (t * t * (3.0 - 2.0 * t));
           }
-          // Segments before the split occurred: width = 0
-          else if (histIdx >= endFork) {
+          // 3. Beyond the origin of the fork: points existed before the split
+          else if (dBehind >= this.splitDistSinceStart) {
             this.splitWidths[i] = 0.0;
           }
-          // Smooth taper at the fork root (where secondary branch organically buds out of main stem)
-          else if (histIdx >= endFork - 2) {
-            const tFork = (endFork - histIdx) / 3.0;
-            const smoothTFork = tFork * tFork * (3.0 - 2.0 * tFork);
-            this.splitWidths[i] = wSample * smoothTFork;
+          // 4. Continuous smooth taper at the root of the fork (organically branching out of main stroke)
+          else if (dBehind >= this.splitDistSinceStart - taperLen) {
+            const t = THREE.MathUtils.clamp((this.splitDistSinceStart - dBehind) / taperLen, 0.0, 1.0);
+            this.splitWidths[i] = wSample * (t * t * (3.0 - 2.0 * t));
           }
-          // Active fork body: full recorded width
+          // 5. Active fork body: full recorded width
           else {
             this.splitWidths[i] = wSample;
           }
@@ -954,14 +958,7 @@ export class FishRibbon {
     if (this.splitState !== 'CLOSED') {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
-
-      // Smooth fade-in/out near fork opening/closing to eliminate color fighting/flickering
-      let forkAlpha = 1.0;
-      if (this.splitState === 'OPENING' || this.splitState === 'CLOSING') {
-        const normS = THREE.MathUtils.clamp(this.splitProgress / 0.18, 0.0, 1.0);
-        forkAlpha = normS * normS * (3.0 - 2.0 * normS);
-      }
-      this.splitMaterial.uniforms.uOpacity.value = 0.92 * forkAlpha;
+      this.splitMaterial.uniforms.uOpacity.value = 0.92;
       this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline);
     } else {
       this.splitMesh.visible = false;
@@ -980,10 +977,11 @@ export class FishRibbon {
       // Central difference tangent of spine
       if (i === 0) {
         this._tmpTangent.subVectors(spine[1], curr);
-        if (this._tmpTangent.lengthSq() < 0.000001) {
+        const lenSq = this._tmpTangent.lengthSq();
+        if (lenSq < 0.000025) {
           this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
         } else {
-          this._tmpTangent.normalize();
+          this._tmpTangent.multiplyScalar(1.0 / Math.sqrt(lenSq));
         }
       } else if (i === segs - 1) {
         this._tmpTangent.subVectors(curr, spine[i - 1]).normalize();
@@ -1005,10 +1003,11 @@ export class FishRibbon {
       // Tangent along undulating centerline
       if (i === 0) {
         this._tmpTangent.subVectors(centerline[1], c);
-        if (this._tmpTangent.lengthSq() < 0.000001) {
+        const lenSq = this._tmpTangent.lengthSq();
+        if (lenSq < 0.000025) {
           this._tmpTangent.set(-Math.cos(this.headingAngle), -Math.sin(this.headingAngle));
         } else {
-          this._tmpTangent.normalize();
+          this._tmpTangent.multiplyScalar(1.0 / Math.sqrt(lenSq));
         }
       } else if (i === segs - 1) {
         this._tmpTangent.subVectors(c, centerline[i - 1]).normalize();
