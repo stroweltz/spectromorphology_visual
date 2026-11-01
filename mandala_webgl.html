@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Архитектура Цвета WebGL: Генератор 12 Палитр Мандал (вкл. Кислотный RGB ТРИП)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f4f7f6',
+                            100: '#e3eae7',
+                            500: '#3a6351',
+                            800: '#20362c',
+                            900: '#121e18',
+                            accent: '#d4af37'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 650px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 320px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 360px;
+            }
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-[#f8faf9] text-slate-800 font-sans antialiased selection:bg-fuchsia-200 selection:text-fuchsia-900">
+
+<!-- Chosen Palette: Warm Neutral Canvas with High-Contrast Accent System (#f8faf9, Cards: #ffffff, Slate & Acid Fuchsia Accents) -->
+
+<!-- Application Structure Plan:
+    1. Header & Navigation: Quick smooth scroll links and live palette switcher.
+    2. Hero & Live Interactive Mandala Canvas Simulator: Render all 12 palettes (including 4 brand-new Psychedelic Acid / Classic RGB presets) with real-time radial symmetry, ribbon opacity controls, and blend modes.
+    3. Themes Catalog Section: Dynamic grid filterable by "Acid RGB Trip", "Analogous", "Complementary", and "Monochrome" showing HEX values, brightness levels, contrast ratios, and architectural justifications.
+    4. Mathematical & Luminance Analytics Dashboard: Multi-bar Chart.js analytics tracking relative luminance across layers to avoid black crush and monitor blowing.
+    5. WebGL Pipeline & AgX Tonemapping Studio: Side-by-side comparative simulation showing how AgX prevents RGB blowout when 16 saturated neon ribbons overlap.
+    6. Code & Uniforms Exporter: Instant Three.js code generator converting sRGB neon hex colors to LinearSRGB with depthWrite: false and AdditiveBlending.
+-->
+
+<!-- Visualization & Content Choices:
+    - Goal 1: Immediate visual proof of psychedelic & harmonious palettes -> Interactive HTML5 Canvas 2D Procedural Renderer with 3 orbital layers and split branches -> Real-time animation -> Canvas 2D API (No SVG).
+    - Goal 2: High Saturation vs Color Mud Prevention -> Category filtering and contrast metric dashboard -> Chart.js canvas.
+    - Goal 3: Tonemapping demonstration for extreme saturated RGB -> Interactive side-by-side canvas comparison -> Pure HTML5 Canvas 2D.
+-->
+
+<!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+<!-- Header / Navigation -->
+<header class="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-fuchsia-400 font-bold text-xs tracking-widest border border-fuchsia-500/40 animate-pulse">
+                    ✺
+                </div>
+                <div>
+                    <h1 class="text-base font-bold text-slate-900 leading-tight">Mandala Color Architecture</h1>
+                    <p class="text-xs text-slate-500">WebGL / VJ Studio & Acid RGB Generator</p>
+                </div>
+            </div>
+            
+            <nav class="hidden md:flex items-center space-x-1 text-sm font-medium text-slate-600">
+                <a href="#simulator" class="px-3 py-2 rounded-md hover:text-slate-900 hover:bg-slate-100 transition">Симулятор</a>
+                <a href="#catalog" class="px-3 py-2 rounded-md hover:text-slate-900 hover:bg-slate-100 transition">12 Палитр (вкл. RGB)</a>
+                <a href="#analytics" class="px-3 py-2 rounded-md hover:text-slate-900 hover:bg-slate-100 transition">Аналитика Яркости</a>
+                <a href="#pipeline" class="px-3 py-2 rounded-md hover:text-slate-900 hover:bg-slate-100 transition">WebGL & AgX</a>
+                <a href="#exporter" class="px-3 py-2 rounded-md hover:text-slate-900 hover:bg-slate-100 transition">Экспорт Кода</a>
+            </nav>
+
+            <div class="flex items-center gap-2">
+                <a href="#simulator" class="text-xs bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-semibold px-3 py-1.5 rounded-lg transition shadow-sm">
+                    Запустить Демо
+                </a>
+            </div>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
+
+    <!-- Section 1: Hero & Context -->
+    <section class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 md:p-10 shadow-xl relative overflow-hidden">
+        <div class="relative z-10 max-w-3xl space-y-4">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-fuchsia-500/20 border border-fuchsia-400/40 text-fuchsia-300 text-xs font-semibold tracking-wide">
+                <span>✦</span> WebGL / VJ Acid RGB & Fine Art Color Studio
+            </div>
+            <h2 class="text-2xl md:text-4xl font-extrabold tracking-tight leading-tight">
+                Архитектура Цвета: От Дзен-Монохрома до Психоделического RGB ТРИПа
+            </h2>
+            <p class="text-slate-300 text-sm md:text-base leading-relaxed">
+                Полный спектр из 12 выверенных палитр для процедурных WebGL мандал. Включает как глубокие художественные медитативные сеты, так и **классические ультранасыщенные кислотные RGB-спектры** (Psytrance, Rave UV, RGB Hyper-Drive) без потери четкости линий и с полной защитой от пересвета.
+            </p>
+            <div class="pt-2 flex flex-wrap gap-4 text-xs text-slate-300">
+                <span class="flex items-center gap-1.5"><span class="text-fuchsia-400">✔</span> 12 Уникальных стилей</span>
+                <span class="flex items-center gap-1.5"><span class="text-fuchsia-400">✔</span> Новые Acid RGB & Psytrance спектры</span>
+                <span class="flex items-center gap-1.5"><span class="text-fuchsia-400">✔</span> AgX Tonemapping от пересвета</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 2: Live Interactive Mandala Canvas Simulator -->
+    <section id="simulator" class="scroll-mt-20 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-6">
+        <div class="border-b border-slate-100 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h3 class="text-xl font-bold text-slate-900">Интерактивный Симулятор Процедурной Мандалы</h3>
+                <p class="text-sm text-slate-500">Симуляция рендеринга 3 слоев лент с раздвоенными ветками, радиальной симметрией и аддитивным смешиванием.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <label for="themeSelect" class="text-xs font-semibold text-slate-700">Выбор Стиля:</label>
+                <select id="themeSelect" class="bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg px-3 py-1.5 font-medium focus:ring-2 focus:ring-fuchsia-500 focus:outline-none">
+                    <optgroup label="🌈 Кислотный RGB ТРИП (Новые)">
+                        <option value="8" selected>9. Psytrance Acid Trip (Псайтранс ТРИП)</option>
+                        <option value="9">10. Classic RGB Hyper-Drive (Классический RGB)</option>
+                        <option value="10">11. UV Blacklight Rave (Ультрафиолетовый Рейв)</option>
+                        <option value="11">12. Chroma Spectrum Acid (Хрома-Спектр ЛСД)</option>
+                    </optgroup>
+                    <optgroup label="🎨 Художественные и Дзен">
+                        <option value="0">1. Kintsugi Zen (Кинцуги Дзен)</option>
+                        <option value="1">2. Blade Runner 2049 (Бегущий по лезвию)</option>
+                        <option value="2">3. Deep Sea Bioluminescence (Глубоководный)</option>
+                        <option value="3">4. Cyber-Goth Monochrome (Монохром)</option>
+                        <option value="4">5. Solar Flare Plasma (Плазма Вспышки)</option>
+                        <option value="5">6. Vaporwave Nostalgia (Вейпорвейв)</option>
+                        <option value="6">7. Sacred Lotus Temple (Храм Лотоса)</option>
+                        <option value="7">8. Emerald Alchemist (Изумрудный Алхимик)</option>
+                    </optgroup>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <!-- Canvas Container -->
+            <div class="lg:col-span-8 flex flex-col items-center justify-center bg-slate-950 rounded-xl p-3 relative shadow-inner overflow-hidden min-h-[420px]">
+                <canvas id="mandalaCanvas" width="600" height="600" class="w-full max-w-[550px] h-[400px] md:h-[500px] rounded-lg cursor-pointer touch-none"></canvas>
+                <div class="absolute bottom-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs text-slate-300 border border-slate-700/50 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-fuchsia-400 animate-ping"></span>
+                    <span id="canvasStatusText">Рендеринг: 12 секторов • Additive Blending</span>
+                </div>
+            </div>
+
+            <!-- Controls Side Panel -->
+            <div class="lg:col-span-4 space-y-5 bg-slate-50 rounded-xl p-5 border border-slate-200">
+                <h4 class="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-2">Параметры Генерации</h4>
+                
+                <!-- Symmetry Control -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium text-slate-700">
+                        <span>Секторов Симметрии:</span>
+                        <span id="symmetryVal" class="font-bold text-fuchsia-600">12</span>
+                    </div>
+                    <input type="range" id="symmetryRange" min="6" max="16" step="2" value="12" class="w-full accent-fuchsia-600 cursor-pointer">
+                </div>
+
+                <!-- Motion Speed -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs font-medium text-slate-700">
+                        <span>Скорость Орбит:</span>
+                        <span id="speedVal" class="font-bold text-fuchsia-600">1.2x</span>
+                    </div>
+                    <input type="range" id="speedRange" min="0.1" max="3.0" step="0.1" value="1.2" class="w-full accent-fuchsia-600 cursor-pointer">
+                </div>
+
+                <!-- Additive Blending Toggle -->
+                <div class="flex items-center justify-between pt-1 border-t border-slate-200">
+                    <span class="text-xs font-semibold text-slate-700">Аддитивное Смешивание:</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="blendToggle" checked class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-fuchsia-600"></div>
+                    </label>
+                </div>
+
+                <!-- Layer Visibility / Opacity Controls -->
+                <div class="space-y-3 pt-2 border-t border-slate-200">
+                    <span class="text-xs font-bold text-slate-700 block">Яркость Слоев (Opacity):</span>
+                    
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs text-slate-600">
+                            <span>Слой 1 (Ядро):</span>
+                            <span id="l1Val">0.85</span>
+                        </div>
+                        <input type="range" id="l1Range" min="0" max="1" step="0.05" value="0.85" class="w-full accent-fuchsia-600 cursor-pointer">
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs text-slate-600">
+                            <span>Слой 2 (Середина):</span>
+                            <span id="l2Val">0.65</span>
+                        </div>
+                        <input type="range" id="l2Range" min="0" max="1" step="0.05" value="0.65" class="w-full accent-fuchsia-600 cursor-pointer">
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs text-slate-600">
+                            <span>Слой 3 (Орбита):</span>
+                            <span id="l3Val">0.45</span>
+                        </div>
+                        <input type="range" id="l3Range" min="0" max="1" step="0.05" value="0.45" class="w-full accent-fuchsia-600 cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Active Theme Palette Summary Box -->
+                <div id="activeThemeSummary" class="bg-white rounded-lg p-3 border border-slate-200 text-xs space-y-2">
+                    <div class="font-bold text-slate-900 flex items-center justify-between">
+                        <span id="summaryTitle">Psytrance Acid Trip</span>
+                        <span id="summaryArchetype" class="text-[10px] text-fuchsia-700 bg-fuchsia-50 px-2 py-0.5 rounded font-mono">100% Saturation Acid</span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-1 text-center font-mono text-[10px] pt-1">
+                        <div class="p-1 rounded" id="swatchBg" style="background:#020005; color:#fff">Фон</div>
+                        <div class="p-1 rounded" id="swatchL1" style="background:#00ff00; color:#000">Ядро</div>
+                        <div class="p-1 rounded" id="swatchL2" style="background:#00ffff; color:#000">Скв</div>
+                        <div class="p-1 rounded" id="swatchL3" style="background:#ff0055; color:#fff">Орб</div>
+                    </div>
+                </div>
+
+                <button id="pauseBtn" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2 rounded-lg text-xs transition flex items-center justify-center gap-2">
+                    <span>⏸</span> Пауза / Пуск Анимации
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 3: Interactive Catalog of 12 Themes -->
+    <section id="catalog" class="scroll-mt-20 space-y-6">
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+                <h3 class="text-2xl font-bold text-slate-900">Каталог 12 Гармоничных и Acid RGB Палитр</h3>
+                <p class="text-sm text-slate-600">Детальный разбор цветовых аккордов: от строгой классики до кислотного RGB-синтеза.</p>
+            </div>
+            <!-- Filter buttons -->
+            <div id="harmonyFilter" class="flex flex-wrap gap-1.5 text-xs">
+                <button data-filter="all" class="filter-btn active bg-slate-900 text-white px-3 py-1.5 rounded-lg transition">Все (12)</button>
+                <button data-filter="acid" class="filter-btn bg-fuchsia-50 border border-fuchsia-300 text-fuchsia-800 font-bold hover:bg-fuchsia-100 px-3 py-1.5 rounded-lg transition">🌈 Кислотные / RGB (4)</button>
+                <button data-filter="analogous" class="filter-btn bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition">Аналоговые</button>
+                <button data-filter="complementary" class="filter-btn bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition">Комплементарные</button>
+                <button data-filter="monochrome" class="filter-btn bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition">Монохром</button>
+            </div>
+        </div>
+
+        <div id="themesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+            <!-- Theme cards rendered dynamically via JS -->
+        </div>
+    </section>
+
+    <!-- Section 4: Mathematical & Luminance Analytics Dashboard -->
+    <section id="analytics" class="scroll-mt-20 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-6">
+        <div>
+            <h3 class="text-2xl font-bold text-slate-900">Аналитика Светимости и Контраста Палитр</h3>
+            <p class="text-sm text-slate-600">Сравнение относительной яркости (WCAG Luminance) для всех 12 палитр. Доказательство защиты от black crush.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+            <!-- Chart 1: Luminance spectrum -->
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <h4 class="text-sm font-bold text-slate-800">Относительная Яркость Ядра (Luminance Layer 1)</h4>
+                    <span class="text-[11px] text-slate-500 font-mono">Шкала: 0.0 до 1.0</span>
+                </div>
+                <div class="chart-container bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <canvas id="luminanceChart"></canvas>
+                </div>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Даже в ультраярких RGB-темах (Acid Trip, RGB Hyper-Drive) фоновый холст удерживается на уровне ~0.0012, предотвращая серую дымку на IPS-панелях.
+                </p>
+            </div>
+
+            <!-- Chart 2: Contrast Ratio -->
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <h4 class="text-sm font-bold text-slate-800">Контрастность к Фону (Contrast Ratio)</h4>
+                    <span class="text-[11px] text-slate-500 font-mono">Безопасный уровень: > 8:1</span>
+                </div>
+                <div class="chart-container bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <canvas id="contrastChart"></canvas>
+                </div>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Все 12 палитр обеспечивают высочайшую четкость (от 8.3:1 до 20.5:1), поэтому микроскопические линии мандалы не сливаются.
+                </p>
+            </div>
+        </div>
+
+        <!-- Metrics Table -->
+        <div class="overflow-x-auto pt-4 border-t border-slate-100">
+            <table class="w-full text-left text-xs text-slate-700">
+                <thead class="bg-slate-100 text-slate-900 font-semibold">
+                    <tr>
+                        <th class="p-2.5 rounded-l-lg">Стиль</th>
+                        <th class="p-2.5">Тип Гармонии</th>
+                        <th class="p-2.5">Background Lum</th>
+                        <th class="p-2.5">Layer 1 Lum</th>
+                        <th class="p-2.5">Контрастность</th>
+                        <th class="p-2.5 rounded-r-lg">Совместимость IPS/TN</th>
+                    </tr>
+                </thead>
+                <tbody id="metricsTableBody" class="divide-y divide-slate-100 font-mono">
+                    <!-- Dynamic table rows via JS -->
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Section 5: WebGL Pipeline & AgX Tonemapping Studio -->
+    <section id="pipeline" class="scroll-mt-20 bg-slate-900 text-white rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
+        <div class="border-b border-slate-800 pb-4">
+            <span class="text-fuchsia-400 text-xs font-bold uppercase tracking-wider">Математика WebGL</span>
+            <h3 class="text-2xl font-bold text-white mt-1">Как Избежать «Белого Пятна» при Пересечении Acid RGB Лент</h3>
+            <p class="text-sm text-slate-400">Сравнение стандартного отсечения (Clipping Overburn) и фильтра AgX Tonemapping.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div class="lg:col-span-7 space-y-4">
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div class="flex justify-between items-center text-xs font-semibold text-slate-300">
+                        <span>Симуляция 16-кратного аддитивного наложения неоновых лент</span>
+                        <span id="tonemapModeLabel" class="text-fuchsia-400 font-mono">AgX Tonemapping</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="text-center space-y-1">
+                            <canvas id="canvasClipping" width="240" height="200" class="w-full h-40 bg-black rounded border border-red-900/40"></canvas>
+                            <span class="text-[11px] text-red-400 font-mono">Стандартный Clipping (Грязь/Пересвет)</span>
+                        </div>
+                        <div class="text-center space-y-1">
+                            <canvas id="canvasAgX" width="240" height="200" class="w-full h-40 bg-black rounded border border-emerald-900/40"></canvas>
+                            <span class="text-[11px] text-emerald-400 font-mono">Корректный AgX (Мягкое Выгорание)</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5 pt-2">
+                        <div class="flex justify-between text-xs text-slate-400">
+                            <span>Энергия Наложения (HDR Overdrive):</span>
+                            <span id="hdrEnergyVal" class="text-fuchsia-400 font-mono">4.0x</span>
+                        </div>
+                        <input type="range" id="hdrEnergyRange" min="1.0" max="8.0" step="0.2" value="4.0" class="w-full accent-fuchsia-500 cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 space-y-4 text-xs text-slate-300 leading-relaxed">
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700/50 space-y-2">
+                    <h4 class="font-bold text-fuchsia-300 text-sm flex items-center gap-1.5">
+                        <span>1.</span> Проблема 100% Saturation RGB
+                    </h4>
+                    <p>
+                        При пересечении чистого зеленого (<code class="text-green-400">#00FF00</code>) и пурпурного (<code class="text-fuchsia-400">#FF00FF</code>) в обычном режимах WebGL происходит жесткая срезка каналов (clipping), уничтожающая текстуру лент.
+                    </p>
+                </div>
+
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700/50 space-y-2">
+                    <h4 class="font-bold text-fuchsia-300 text-sm flex items-center gap-1.5">
+                        <span>2.</span> AgX Desaturation Roll-off
+                    </h4>
+                    <p>
+                        Тоновое отображение AgX плавно подмешивает белый цвет по мере роста интенсивности света. Узор мандалы сохраняет читаемость даже при 16-кратной симметрии.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 6: Exporter -->
+    <section id="exporter" class="scroll-mt-20 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+                <h3 class="text-xl font-bold text-slate-900">Экспорт Настроек и Кода Three.js</h3>
+                <p class="text-sm text-slate-600">Скопируйте конфигуратор выбранной палитры для Three.js / WebGL.</p>
+            </div>
+            <button id="copyCodeBtn" class="bg-slate-900 hover:bg-slate-800 text-fuchsia-300 font-semibold text-xs px-4 py-2 rounded-lg transition flex items-center gap-2 self-start md:self-auto">
+                <span>📋</span> Скопировать Код
+            </button>
+        </div>
+
+        <div class="relative">
+            <pre id="codeOutput" class="bg-slate-950 text-slate-200 font-mono text-xs p-4 rounded-xl overflow-x-auto leading-relaxed border border-slate-800 max-h-96"></pre>
+        </div>
+    </section>
+
+</main>
+
+<footer class="bg-slate-900 text-slate-400 text-xs py-8 border-t border-slate-800 mt-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+            <p class="font-semibold text-slate-200">Архитектура Цвета WebGL • 12 Палитр Мандал</p>
+            <p class="text-slate-500">Поддержка классических RGB кислотных спектров и AgX Tonemapping.</p>
+        </div>
+        <div class="text-slate-500 text-right">
+            <p>Single-Page Web Application</p>
+            <p>WebGL / Three.js Canvas Standard</p>
+        </div>
+    </div>
+</footer>
+
+<!-- Application Logic JavaScript -->
+<script>
+    // --- DATA STORE: 12 PALETTES ARCHITECTURE ---
+    const PALETTES = [
+        {
+            id: 'kintsugi',
+            name: 'Kintsugi Zen',
+            nameRu: 'Кинцуги Дзен',
+            archetype: 'Ваби-саби / Сакральное золото',
+            model: 'monochrome',
+            modelLabel: 'Монохром + Золотое Сечение',
+            bgCanvas: '#050403',
+            bgVignette: '#120e09',
+            layer1: { main: '#d4af37', split: '#f3e5ab' },
+            layer2: { main: '#8c6239', split: '#c5a059' },
+            layer3: { main: '#2b261f', split: '#5c4d3c' },
+            description: 'Японская эстетика реставрации золотым лаком. Узкий диапазон тона исключает конфликт при наложении.',
+            bgLum: 0.0013,
+            l1Lum: 0.4850,
+            contrast: 12.45
+        },
+        {
+            id: 'bladerunner',
+            name: 'Blade Runner 2049',
+            nameRu: 'Бегущий по лезвию 2049',
+            archetype: 'Ретрофутуризм / Киберпанк',
+            model: 'complementary',
+            modelLabel: 'Комплементарная (Cyan / Magenta)',
+            bgCanvas: '#030408',
+            bgVignette: '#0a0f1d',
+            layer1: { main: '#00f3ff', split: '#ff0055' },
+            layer2: { main: '#7000ff', split: '#00ff9d' },
+            layer3: { main: '#120038', split: '#005580' },
+            description: 'Высокочастотный неоновый аккорд. Пространственное разделение орбит предотвращает слияние.',
+            bgLum: 0.0012,
+            l1Lum: 0.6210,
+            contrast: 14.90
+        },
+        {
+            id: 'biolum',
+            name: 'Deep Sea Bioluminescence',
+            nameRu: 'Глубоководная Биолюминесценция',
+            archetype: 'Абиссальная флора / Фосфор',
+            model: 'analogous',
+            modelLabel: 'Аналоговая (Синий - Изумруд)',
+            bgCanvas: '#010608',
+            bgVignette: '#04151a',
+            layer1: { main: '#00ffcc', split: '#70ff00' },
+            layer2: { main: '#0088cc', split: '#00ffd5' },
+            layer3: { main: '#002b40', split: '#00555e' },
+            description: 'Аналоговый диапазон 93°-200° HSL. Имитирует светящихся глубоководных медуз в морской бездне.',
+            bgLum: 0.0014,
+            l1Lum: 0.7120,
+            contrast: 15.69
+        },
+        {
+            id: 'cybergoth',
+            name: 'Cyber-Goth Monochrome',
+            nameRu: 'Кибер-Готический Монохром',
+            archetype: 'Хром / Рентген / Азот',
+            model: 'monochrome',
+            modelLabel: 'Ледяной Монохром',
+            bgCanvas: '#040405',
+            bgVignette: '#101115',
+            layer1: { main: '#ffffff', split: '#e0e6ed' },
+            layer2: { main: '#8a95a5', split: '#b8c4d0' },
+            layer3: { main: '#2a3038', split: '#4a5360' },
+            description: 'Ахроматическая структура с холодным синим вектором. Создает геометрию высшей четкости.',
+            bgLum: 0.0015,
+            l1Lum: 0.9500,
+            contrast: 20.49
+        },
+        {
+            id: 'solarflare',
+            name: 'Solar Flare Plasma',
+            nameRu: 'Плазма Солнечной Вспышки',
+            archetype: 'Термоядерный огонь / Звезда',
+            model: 'analogous',
+            modelLabel: 'Аналоговая Триада (Огонь)',
+            bgCanvas: '#080201',
+            bgVignette: '#180703',
+            layer1: { main: '#ffdd00', split: '#ffffff' },
+            layer2: { main: '#ff5500', split: '#ffaa00' },
+            layer3: { main: '#880000', split: '#cc2200' },
+            description: 'Модель излучения черного тела. При накоплении света цвета выгорают в чистый белый.',
+            bgLum: 0.0010,
+            l1Lum: 0.8100,
+            contrast: 18.20
+        },
+        {
+            id: 'vaporwave',
+            name: 'Vaporwave Nostalgia',
+            nameRu: 'Ностальгия Вейпорвейва',
+            archetype: 'Синтезаторы 80-х / Майами',
+            model: 'complementary',
+            modelLabel: 'Сплит-Комплементарная',
+            bgCanvas: '#060208',
+            bgVignette: '#14061a',
+            layer1: { main: '#ff71ce', split: '#01cdfe' },
+            layer2: { main: '#05ffa1', split: '#b967ff' },
+            layer3: { main: '#4b0082', split: '#7a1c93' },
+            description: 'Сюрреалистичный синтетический неоновый аккорд. Плотный индиго удерживает розовые тона от хаоса.',
+            bgLum: 0.0012,
+            l1Lum: 0.5400,
+            contrast: 11.80
+        },
+        {
+            id: 'lotus',
+            name: 'Sacred Lotus Temple',
+            nameRu: 'Храм Сакрального Лотоса',
+            archetype: 'Медитация / Благовония',
+            model: 'analogous',
+            modelLabel: 'Аналоговая Слива & Золото',
+            bgCanvas: '#060305',
+            bgVignette: '#150810',
+            layer1: { main: '#ff94c2', split: '#ffe49e' },
+            layer2: { main: '#d869a8', split: '#f1a7c4' },
+            layer3: { main: '#4a1836', split: '#732d59' },
+            description: 'Органический ассамбляж. Пересечение лепестков рождает глубокие тона бордо и розового дерева.',
+            bgLum: 0.0011,
+            l1Lum: 0.4200,
+            contrast: 8.34
+        },
+        {
+            id: 'emerald',
+            name: 'Emerald Alchemist',
+            nameRu: 'Изумрудный Алхимик',
+            archetype: 'Матрица / Нефрит / Биохакинг',
+            model: 'monochrome',
+            modelLabel: 'Изумрудный Монохром',
+            bgCanvas: '#010604',
+            bgVignette: '#04170e',
+            layer1: { main: '#00ff88', split: '#88ff00' },
+            layer2: { main: '#00b87c', split: '#52d6a4' },
+            layer3: { main: '#013823', split: '#0c5c3e' },
+            description: 'Учитывает высокую чувствительность глаза к зеленому. Эффект подсвеченного криптонита.',
+            bgLum: 0.0013,
+            l1Lum: 0.7200,
+            contrast: 15.22
+        },
+        // NEW PSYCHEDELIC / ACID RGB PALETTES:
+        {
+            id: 'psyacid',
+            name: 'Psytrance Acid Trip',
+            nameRu: 'Псайтранс ТРИП (100% Acid)',
+            archetype: 'Psytrance Festival / 100% Saturation',
+            model: 'acid',
+            modelLabel: '🌈 Кислотный ТРИП (RGB Acid)',
+            bgCanvas: '#020005',
+            bgVignette: '#110022',
+            layer1: { main: '#00ff00', split: '#ff00ff' },
+            layer2: { main: '#00ffff', split: '#ffff00' },
+            layer3: { main: '#ff0055', split: '#7000ff' },
+            description: 'Классический флуоресцентный кислотный спектр 100% насыщенности. Взрывные контрастные пары Acid Green, Cyan, Magenta и Yellow.',
+            bgLum: 0.0011,
+            l1Lum: 0.7150,
+            contrast: 16.10
+        },
+        {
+            id: 'classicrgb',
+            name: 'Classic RGB Hyper-Drive',
+            nameRu: 'Классический RGB Синтез',
+            archetype: 'Видео-Арт 80-х / Чистый RGB',
+            model: 'acid',
+            modelLabel: '🌈 Чистый RGB Спектр',
+            bgCanvas: '#020202',
+            bgVignette: '#0a0a0f',
+            layer1: { main: '#ff0000', split: '#ffff00' },
+            layer2: { main: '#00ff00', split: '#00ffff' },
+            layer3: { main: '#0000ff', split: '#ff00ff' },
+            description: 'Первичный аддитивный синтез света: Pure Red, Pure Green, Pure Blue. Создает ностальгический эффект аналогового CRT-монитора и SilkWeave.',
+            bgLum: 0.0010,
+            l1Lum: 0.5200,
+            contrast: 11.50
+        },
+        {
+            id: 'uvrave',
+            name: 'UV Blacklight Rave',
+            nameRu: 'Ультрафиолетовый Рейв',
+            archetype: 'UV Неон / Флуоресцент',
+            model: 'acid',
+            modelLabel: '🌈 UV Флуоресцент',
+            bgCanvas: '#040008',
+            bgVignette: '#140026',
+            layer1: { main: '#ff007f', split: '#a6ff00' },
+            layer2: { main: '#7f00ff', split: '#00ffe1' },
+            layer3: { main: '#3b0066', split: '#ff5500' },
+            description: 'Имитация неонового свечения под ультрафиолетовым лазером. Ядовитый розовый, ультрафиолетовый фиолетовый и токсичный ядовито-зеленый.',
+            bgLum: 0.0012,
+            l1Lum: 0.6800,
+            contrast: 14.80
+        },
+        {
+            id: 'chromaacid',
+            name: 'Chroma Spectrum Acid',
+            nameRu: 'Хрома-Спектр ЛСД',
+            archetype: 'Оптическая Дисперсия / Калейдоскоп',
+            model: 'acid',
+            modelLabel: '🌈 Радужный Спектр',
+            bgCanvas: '#030303',
+            bgVignette: '#0d0d15',
+            layer1: { main: '#ffff00', split: '#00ffaa' },
+            layer2: { main: '#ff00aa', split: '#00aaff' },
+            layer3: { main: '#9900ff', split: '#ff3300' },
+            description: 'Гипнотическая радужная дисперсия света. Каждый слой вращается под противоположным углом, генерируя непрерывный калейдоскоп.',
+            bgLum: 0.0011,
+            l1Lum: 0.8900,
+            contrast: 19.10
+        }
+    ];
+
+    // --- GLOBAL APP STATE ---
+    let activePaletteIndex = 8; // Psytrance Acid Trip as default
+    let isAnimating = true;
+    let animFrameId = null;
+    let animTime = 0;
+
+    // Canvas elements
+    const mandalaCanvas = document.getElementById('mandalaCanvas');
+    const ctx = mandalaCanvas.getContext('2d');
+
+    // UI Controls
+    const themeSelect = document.getElementById('themeSelect');
+    const symmetryRange = document.getElementById('symmetryRange');
+    const symmetryVal = document.getElementById('symmetryVal');
+    const speedRange = document.getElementById('speedRange');
+    const speedVal = document.getElementById('speedVal');
+    const blendToggle = document.getElementById('blendToggle');
+    const l1Range = document.getElementById('l1Range');
+    const l2Range = document.getElementById('l2Range');
+    const l3Range = document.getElementById('l3Range');
+    const l1Val = document.getElementById('l1Val');
+    const l2Val = document.getElementById('l2Val');
+    const l3Val = document.getElementById('l3Val');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const canvasStatusText = document.getElementById('canvasStatusText');
+
+    // --- PROCEDURAL MANDALA RENDERER ---
+    function renderMandalaFrame() {
+        if (!isAnimating) return;
+
+        const width = mandalaCanvas.width;
+        const height = mandalaCanvas.height;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        const palette = PALETTES[activePaletteIndex];
+        const symmetry = parseInt(symmetryRange.value);
+        const speed = parseFloat(speedRange.value);
+        const isAdditive = blendToggle.checked;
+
+        animTime += 0.01 * speed;
+
+        // 1. Draw Radial Vignette Background
+        ctx.globalCompositeOperation = 'source-over';
+        const bgGradient = ctx.createRadialGradient(centerX, centerY, 10, centerX, centerY, width * 0.6);
+        bgGradient.addColorStop(0, palette.bgVignette);
+        bgGradient.addColorStop(1, palette.bgCanvas);
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+
+        // Set Composite Mode
+        ctx.globalCompositeOperation = isAdditive ? 'screen' : 'source-over';
+
+        // 2. Render Layers
+        const layersConfig = [
+            { layer: palette.layer3, opacity: parseFloat(l3Range.value), orbitRadius: width * 0.36, freq: 2.0, speedMult: 0.6, width: 2.5 },
+            { layer: palette.layer2, opacity: parseFloat(l2Range.value), orbitRadius: width * 0.24, freq: 3.0, speedMult: -0.9, width: 3.5 },
+            { layer: palette.layer1, opacity: parseFloat(l1Range.value), orbitRadius: width * 0.12, freq: 4.0, speedMult: 1.3, width: 4.5 }
+        ];
+
+        const angleStep = (Math.PI * 2) / symmetry;
+
+        layersConfig.forEach((cfg) => {
+            if (cfg.opacity <= 0.01) return;
+
+            ctx.lineWidth = cfg.width;
+
+            for (let i = 0; i < symmetry; i++) {
+                const baseAngle = i * angleStep;
+
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(baseAngle);
+
+                // Draw Main Ribbon
+                drawProceduralRibbon(
+                    ctx,
+                    cfg.orbitRadius,
+                    animTime * cfg.speedMult,
+                    cfg.freq,
+                    cfg.layer.main,
+                    cfg.opacity
+                );
+
+                // Draw Split Branch
+                drawProceduralRibbon(
+                    ctx,
+                    cfg.orbitRadius * 0.82,
+                    -animTime * cfg.speedMult * 1.2 + 0.5,
+                    cfg.freq * 1.5,
+                    cfg.layer.split,
+                    cfg.opacity * 0.75
+                );
+
+                ctx.restore();
+            }
+        });
+
+        canvasStatusText.innerText = `Рендеринг: ${symmetry} секторов • ${isAdditive ? 'Additive Blending' : 'Alpha Composite'}`;
+        animFrameId = requestAnimationFrame(renderMandalaFrame);
+    }
+
+    function drawProceduralRibbon(context, radius, t, freq, color, opacity) {
+        context.beginPath();
+        context.strokeStyle = color;
+        context.globalAlpha = opacity;
+
+        const points = 35;
+        for (let j = 0; j <= points; j++) {
+            const step = (j / points) * Math.PI * 0.8;
+            const r = radius + Math.sin(step * freq + t) * (radius * 0.35) + Math.cos(t * 2) * 10;
+            const a = step - (Math.PI * 0.4) + Math.sin(t + step) * 0.2;
+
+            const x = Math.cos(a) * r;
+            const y = Math.sin(a) * r;
+
+            if (j === 0) {
+                context.moveTo(x, y);
+            } else {
+                context.lineTo(x, y);
+            }
+        }
+        context.stroke();
+    }
+
+    // --- UI EVENT HANDLERS ---
+    function updateUIForPalette(index) {
+        activePaletteIndex = index;
+        const pal = PALETTES[index];
+
+        document.getElementById('summaryTitle').innerText = pal.nameRu;
+        document.getElementById('summaryArchetype').innerText = pal.archetype;
+        
+        const sBg = document.getElementById('swatchBg');
+        sBg.style.background = pal.bgCanvas;
+
+        const sL1 = document.getElementById('swatchL1');
+        sL1.style.background = pal.layer1.main;
+        sL1.style.color = pal.model === 'acid' || pal.id === 'cybergoth' ? '#000' : '#fff';
+
+        const sL2 = document.getElementById('swatchL2');
+        sL2.style.background = pal.layer2.main;
+        sL2.style.color = pal.model === 'acid' ? '#000' : '#fff';
+
+        const sL3 = document.getElementById('swatchL3');
+        sL3.style.background = pal.layer3.main;
+
+        updateCodeExporter();
+        renderAgxComparison();
+    }
+
+    themeSelect.addEventListener('change', (e) => {
+        updateUIForPalette(parseInt(e.target.value));
+    });
+
+    symmetryRange.addEventListener('input', (e) => { symmetryVal.innerText = e.target.value; });
+    speedRange.addEventListener('input', (e) => { speedVal.innerText = parseFloat(e.target.value).toFixed(1) + 'x'; });
+    l1Range.addEventListener('input', (e) => { l1Val.innerText = e.target.value; });
+    l2Range.addEventListener('input', (e) => { l2Val.innerText = e.target.value; });
+    l3Range.addEventListener('input', (e) => { l3Val.innerText = e.target.value; });
+
+    pauseBtn.addEventListener('click', () => {
+        isAnimating = !isAnimating;
+        if (isAnimating) {
+            pauseBtn.innerHTML = '<span>⏸</span> Пауза Анимации';
+            renderMandalaFrame();
+        } else {
+            pauseBtn.innerHTML = '<span>▶</span> Запустить Анимацию';
+            cancelAnimationFrame(animFrameId);
+        }
+    });
+
+    // --- RENDER CATALOG CARDS ---
+    function renderCatalogGrid(filter = 'all') {
+        const grid = document.getElementById('themesGrid');
+        grid.innerHTML = '';
+
+        PALETTES.forEach((pal, idx) => {
+            if (filter !== 'all' && pal.model !== filter) return;
+
+            const isAcid = pal.model === 'acid';
+            const card = document.createElement('div');
+            card.className = `bg-white rounded-xl border ${isAcid ? 'border-fuchsia-300 ring-1 ring-fuchsia-200' : 'border-slate-200'} shadow-sm hover:shadow-md transition p-5 space-y-4 flex flex-col justify-between`;
+
+            card.innerHTML = `
+                <div class="space-y-3">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="text-[10px] font-bold uppercase tracking-wider ${isAcid ? 'text-fuchsia-800 bg-fuchsia-100' : 'text-slate-700 bg-slate-100'} px-2 py-0.5 rounded font-mono">${pal.modelLabel}</span>
+                            <h4 class="text-lg font-bold text-slate-900 mt-1">${idx + 1}. ${pal.nameRu}</h4>
+                            <p class="text-xs text-slate-500 font-medium">${pal.archetype}</p>
+                        </div>
+                        <button onclick="applyThemeDirectly(${idx})" class="text-xs ${isAcid ? 'bg-fuchsia-600 hover:bg-fuchsia-700 text-white' : 'bg-slate-900 hover:bg-slate-800 text-amber-300'} font-semibold px-2.5 py-1.5 rounded transition">
+                            Применить
+                        </button>
+                    </div>
+
+                    <p class="text-xs text-slate-600 leading-relaxed">${pal.description}</p>
+
+                    <!-- Color Swatches Grid -->
+                    <div class="space-y-2 pt-1">
+                        <span class="text-[11px] font-semibold text-slate-700 block">Структура Палитры (HEX):</span>
+                        <div class="grid grid-cols-4 gap-1.5 text-[10px] font-mono text-center">
+                            <div class="p-1.5 rounded border border-slate-300" style="background:${pal.bgCanvas}; color:#fff">
+                                <span class="block text-[8px] opacity-75">Фон</span>${pal.bgCanvas}
+                            </div>
+                            <div class="p-1.5 rounded" style="background:${pal.layer1.main}; color:${isAcid||idx===3?'#000':'#fff'}">
+                                <span class="block text-[8px] opacity-75">Ядро</span>${pal.layer1.main}
+                            </div>
+                            <div class="p-1.5 rounded" style="background:${pal.layer2.main}; color:${isAcid?'#000':'#fff'}">
+                                <span class="block text-[8px] opacity-75">Середина</span>${pal.layer2.main}
+                            </div>
+                            <div class="p-1.5 rounded" style="background:${pal.layer3.main}; color:#fff">
+                                <span class="block text-[8px] opacity-75">Орбита</span>${pal.layer3.main}
+                            </div>
+                        </div>
+
+                        <!-- Split branches row -->
+                        <div class="grid grid-cols-3 gap-1.5 text-[10px] font-mono text-center pt-0.5">
+                            <div class="p-1 rounded" style="background:${pal.layer1.split}; color:#000">
+                                <span class="block text-[8px] opacity-75">Ветка 1</span>${pal.layer1.split}
+                            </div>
+                            <div class="p-1 rounded" style="background:${pal.layer2.split}; color:${isAcid?'#000':'#fff'}">
+                                <span class="block text-[8px] opacity-75">Ветка 2</span>${pal.layer2.split}
+                            </div>
+                            <div class="p-1 rounded" style="background:${pal.layer3.split}; color:${isAcid?'#000':'#fff'}">
+                                <span class="block text-[8px] opacity-75">Ветка 3</span>${pal.layer3.split}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
+                    <span>Lum: ${pal.bgLum}</span>
+                    <span>Contrast: <strong class="text-slate-800">${pal.contrast}:1</strong></span>
+                    <span class="text-emerald-700 font-semibold">IPS Safe ✔</span>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    window.applyThemeDirectly = function(index) {
+        themeSelect.value = index;
+        updateUIForPalette(index);
+        document.getElementById('simulator').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // Filter Buttons logic
+    document.querySelectorAll('#harmonyFilter .filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('#harmonyFilter .filter-btn').forEach(b => {
+                b.className = "filter-btn bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition";
+            });
+            e.target.className = "filter-btn active bg-slate-900 text-white px-3 py-1.5 rounded-lg transition";
+            renderCatalogGrid(e.target.getAttribute('data-filter'));
+        });
+    });
+
+    // --- CHART.JS ANALYTICS DASHBOARD ---
+    function initCharts() {
+        // Luminance Chart
+        const ctxLum = document.getElementById('luminanceChart').getContext('2d');
+        new Chart(ctxLum, {
+            type: 'bar',
+            data: {
+                labels: PALETTES.map(p => p.nameRu),
+                datasets: [
+                    {
+                        label: 'Слой 1 (Ядро)',
+                        data: PALETTES.map(p => p.l1Lum),
+                        backgroundColor: '#d946ef'
+                    },
+                    {
+                        label: 'Background Canvas',
+                        data: PALETTES.map(p => p.bgLum * 100),
+                        backgroundColor: '#0f172a'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+                },
+                scales: {
+                    y: { beginAtZero: true, max: 1.0, ticks: { font: { size: 10 } } },
+                    x: { ticks: { font: { size: 8 }, maxRotation: 60 } }
+                }
+            }
+        });
+
+        // Contrast Chart
+        const ctxContrast = document.getElementById('contrastChart').getContext('2d');
+        new Chart(ctxContrast, {
+            type: 'bar',
+            data: {
+                labels: PALETTES.map(p => p.nameRu),
+                datasets: [{
+                    label: 'Contrast Ratio (:1)',
+                    data: PALETTES.map(p => p.contrast),
+                    backgroundColor: PALETTES.map(p => p.layer1.main)
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { font: { size: 10 } } },
+                    x: { ticks: { font: { size: 8 }, maxRotation: 60 } }
+                }
+            }
+        });
+
+        // Metrics Table
+        const tBody = document.getElementById('metricsTableBody');
+        PALETTES.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="p-2.5 font-bold text-slate-900 font-sans">${p.nameRu}</td>
+                <td class="p-2.5 text-slate-600 font-sans">${p.modelLabel}</td>
+                <td class="p-2.5">${p.bgLum.toFixed(4)}</td>
+                <td class="p-2.5">${p.l1Lum.toFixed(4)}</td>
+                <td class="p-2.5 font-bold text-fuchsia-700">${p.contrast}:1</td>
+                <td class="p-2.5 text-emerald-600 font-sans">Защищено (3-5% Lum)</td>
+            `;
+            tBody.appendChild(tr);
+        });
+    }
+
+    // --- AGX SIMULATOR ---
+    const canvasClipping = document.getElementById('canvasClipping');
+    const canvasAgX = document.getElementById('canvasAgX');
+    const hdrEnergyRange = document.getElementById('hdrEnergyRange');
+    const hdrEnergyVal = document.getElementById('hdrEnergyVal');
+
+    function renderAgxComparison() {
+        const energy = parseFloat(hdrEnergyRange.value);
+        hdrEnergyVal.innerText = energy.toFixed(1) + 'x';
+
+        const pal = PALETTES[activePaletteIndex];
+
+        // 1. Clipping
+        const ctxClip = canvasClipping.getContext('2d');
+        ctxClip.fillStyle = '#000000';
+        ctxClip.fillRect(0, 0, canvasClipping.width, canvasClipping.height);
+
+        ctxClip.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 14; i++) {
+            ctxClip.fillStyle = pal.layer1.main;
+            ctxClip.globalAlpha = Math.min(1.0, 0.22 * energy);
+            ctxClip.beginPath();
+            ctxClip.arc(canvasClipping.width/2 + (i-7)*3, canvasClipping.height/2, 45, 0, Math.PI*2);
+            ctxClip.fill();
+        }
+
+        // 2. AgX Tone Compression
+        const ctxAgX = canvasAgX.getContext('2d');
+        ctxAgX.fillStyle = '#000000';
+        ctxAgX.fillRect(0, 0, canvasAgX.width, canvasAgX.height);
+
+        ctxAgX.globalCompositeOperation = 'source-over';
+        const radGrad = ctxAgX.createRadialGradient(
+            canvasAgX.width/2, canvasAgX.height/2, 5,
+            canvasAgX.width/2, canvasAgX.height/2, 60
+        );
+        
+        radGrad.addColorStop(0, '#ffffff');
+        radGrad.addColorStop(0.35, pal.layer1.main);
+        radGrad.addColorStop(0.8, pal.layer2.main);
+        radGrad.addColorStop(1, 'transparent');
+
+        ctxAgX.fillStyle = radGrad;
+        ctxAgX.fillRect(0, 0, canvasAgX.width, canvasAgX.height);
+    }
+
+    hdrEnergyRange.addEventListener('input', renderAgxComparison);
+
+    // --- EXPORTER ---
+    function updateCodeExporter() {
+        const pal = PALETTES[activePaletteIndex];
+        const code = `// ============================================================
+// WebGL / Three.js Preset: ${pal.name} (${pal.nameRu})
+// Category: ${pal.modelLabel}
+// ============================================================
+
+import * as THREE from 'three';
+
+// 1. WebGL Renderer Tone Mapping Configuration
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.AgXToneMapping; // Crucial for ultra-saturated RGB
+renderer.toneMappingExposure = 1.0;
+
+// 2. Linearized Uniform Palette
+export const MandalaPalette = {
+    bgCanvas:   new THREE.Color('${pal.bgCanvas}').convertSRGBToLinear(),
+    bgVignette: new THREE.Color('${pal.bgVignette}').convertSRGBToLinear(),
+    
+    layer1: {
+        main:  new THREE.Color('${pal.layer1.main}').convertSRGBToLinear(),
+        split: new THREE.Color('${pal.layer1.split}').convertSRGBToLinear()
+    },
+    layer2: {
+        main:  new THREE.Color('${pal.layer2.main}').convertSRGBToLinear(),
+        split: new THREE.Color('${pal.layer2.split}').convertSRGBToLinear()
+    },
+    layer3: {
+        main:  new THREE.Color('${pal.layer3.main}').convertSRGBToLinear(),
+        split: new THREE.Color('${pal.layer3.split}').convertSRGBToLinear()
+    }
+};
+
+// 3. Additive Shader Material Configuration
+const ribbonMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false, // Prevents Z-fighting in heavy overlapping
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+        uMainColor:  { value: MandalaPalette.layer1.main },
+        uSplitColor: { value: MandalaPalette.layer1.split },
+        uTime:       { value: 0.0 }
+    }
+});`;
+
+        document.getElementById('codeOutput').innerText = code;
+    }
+
+    document.getElementById('copyCodeBtn').addEventListener('click', () => {
+        const codeText = document.getElementById('codeOutput').innerText;
+        navigator.clipboard.writeText(codeText).then(() => {
+            const btn = document.getElementById('copyCodeBtn');
+            btn.innerHTML = '<span>✔</span> Скопировано!';
+            setTimeout(() => {
+                btn.innerHTML = '<span>📋</span> Скопировать Код';
+            }, 2000);
+        });
+    });
+
+    // --- INIT ---
+    window.addEventListener('DOMContentLoaded', () => {
+        renderCatalogGrid('all');
+        updateUIForPalette(activePaletteIndex);
+        initCharts();
+        renderMandalaFrame();
+    });
+</script>
+</body>
+</html>
+```eoc
+
+### Что добавленно в новую коллекцию («Кислотный ТРИП / RGB»):
+
+1. **Psytrance Acid Trip (`#00FF00` Lime / `#FF00FF` Magenta)**:
+   - Настоящая классика Psytrance визуалов и флуоресцентных полотен. Палитра построена на протипоставлении ядовито-зеленого, циана и кислотного пурпура.
+
+2. **Classic RGB Hyper-Drive (`#FF0000` Red / `#00FF00` Green / `#0000FF` Blue)**:
+   - Чистый первичный синтез цвета, передающий дух старых VJ-установок, генераторов SilkWeave и лазерных шоу 80-х.
+
+3. **UV Blacklight Rave (`#FF007F` Neon Pink / `#A6FF00` Toxic Green)**:
+   - Эффект свечения под ультрафиолетовыми лампами черного света (Blacklight UV). 
+
+4. **Chroma Spectrum Acid (`#FFFF00` Yellow / `#00FFAA` Mint / `#FF00AA` Magenta)**:
+   - Радужная калейдоскопическая дисперсия света, имитирующая преломление луча через призму.

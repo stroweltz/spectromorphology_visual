@@ -11,7 +11,12 @@ export default defineConfig({
   },
   server: {
     port: 5176,
-    open: false
+    open: false,
+    watch: {
+      usePolling: true,
+      interval: 1000,
+      ignored: ['**/*.log', '**/*.json', '**/mandala_webgl.html']
+    }
   },
   plugins: [
     {

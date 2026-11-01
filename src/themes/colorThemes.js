@@ -6,8 +6,88 @@ import * as THREE from 'three';
  * Engineered based on WebGL additive blending mathematics, Inigo Quilez cosine palettes,
  * and calibrated to prevent 'black crush' while providing rich, blurred, breathing
  * procedural ambient gradients (Nebula, Waves, Aurora) tuned specifically for each aesthetic.
+ *
+ * Includes:
+ *  - 4 High-Energy / Psychedelic Acid VJ presets (Psytrance Trip, Classic RGB, UV Rave, Chroma Acid)
+ *  - 8 Harmonized Artistic presets (Blade Runner, Kintsugi, Deep Sea, Solar Flare, Vaporwave, Lotus, Emerald, Cyber-Goth)
+ *  - 1 Classic OLED Baseline preset
  */
 export const COLOR_THEMES = {
+  // ── 1. Psychedelic / Acid RGB / VJ Presets ──────────────────
+  '🌈 Псайтранс ТРИП (100% Acid)': {
+    id: 'psyacid',
+    title: '🌈 Псайтранс ТРИП (100% Acid)',
+    archetype: 'Psytrance Festival / 100% Saturation / Флуоресцент',
+    bgMode: 'nebula',
+    bgOuter: '#020005', // Ультратемная фиолетовая бездна
+    bgInner: '#22003b', // Флуоресцентная темно-фиолетовая плазма
+    bgAccent: '#00262b', // Глубокий кислотно-циановый отблеск
+    nebulaIntensity: 7.2,
+    nebulaScale: 1.6,
+    nebulaSpeed: 2.8,
+    vignette: 0.70,
+    layers: [
+      { color: '#00ff00', splitColor: '#ff00ff', name: 'Acid Green / Hot Magenta (Ядро)' },
+      { color: '#00ffff', splitColor: '#ffff00', name: 'Electric Cyan / Acid Yellow (Середина)' },
+      { color: '#ff0055', splitColor: '#7000ff', name: 'Fluo Red / Electric Violet (Орбита)' }
+    ]
+  },
+  '🔮 Ультрафиолетовый Рейв (UV Blacklight)': {
+    id: 'uvrave',
+    title: '🔮 Ультрафиолетовый Рейв (UV Blacklight)',
+    archetype: 'Ультрафиолетовый лазер / Флуоресцентный неон',
+    bgMode: 'nebula',
+    bgOuter: '#040008', // Ночной клубный сумрак
+    bgInner: '#290040', // Глубокий ультрафиолетовый blacklight
+    bgAccent: '#0d2b10', // Фосфоресцирующий токсичный отблеск
+    nebulaIntensity: 7.0,
+    nebulaScale: 1.6,
+    nebulaSpeed: 2.6,
+    vignette: 0.72,
+    layers: [
+      { color: '#ff007f', splitColor: '#a6ff00', name: 'UV Pink / Toxic Lime (Ядро)' },
+      { color: '#7f00ff', splitColor: '#00ffe1', name: 'Deep Violet / Electric Aqua (Середина)' },
+      { color: '#3b0066', splitColor: '#ff5500', name: 'Dark Ultraviolet / Neon Orange (Орбита)' }
+    ]
+  },
+  '🌀 Хрома-Спектр ЛСД (Chroma Acid)': {
+    id: 'chromaacid',
+    title: '🌀 Хрома-Спектр ЛСД (Chroma Acid)',
+    archetype: 'Оптическая призматическая дисперсия / Калейдоскоп',
+    bgMode: 'waves', // Пульсирующие хроматические волны
+    bgOuter: '#030303', // Нейтральная темнота
+    bgInner: '#1c1c33', // Призматическая темно-синяя аура
+    bgAccent: '#2d1808', // Теплый янтарный отблеск спектра
+    nebulaIntensity: 6.6,
+    nebulaScale: 1.7,
+    nebulaSpeed: 2.4,
+    vignette: 0.75,
+    layers: [
+      { color: '#ffff00', splitColor: '#00ffaa', name: 'Solar Yellow / Spring Mint (Ядро)' },
+      { color: '#ff00aa', splitColor: '#00aaff', name: 'Vivid Pink / Azure Blue (Середина)' },
+      { color: '#9900ff', splitColor: '#ff3300', name: 'Psychedelic Violet / Fire Orange (Орбита)' }
+    ]
+  },
+  '🕹️ Классический RGB Синтез': {
+    id: 'classicrgb',
+    title: '🕹️ Классический RGB Синтез',
+    archetype: 'Видео-арт 80-х / Чистый Red-Green-Blue синтез света',
+    bgMode: 'nebula',
+    bgOuter: '#020202', // Чернота экрана CRT
+    bgInner: '#121220', // Люминофорное свечение кинескопа
+    bgAccent: '#201018', // Вторичный луч кинескопа
+    nebulaIntensity: 6.2,
+    nebulaScale: 1.5,
+    nebulaSpeed: 2.0,
+    vignette: 0.75,
+    layers: [
+      { color: '#ff0000', splitColor: '#ffff00', name: 'Pure Red / Pure Yellow (Ядро)' },
+      { color: '#00ff00', splitColor: '#00ffff', name: 'Pure Green / Pure Cyan (Середина)' },
+      { color: '#0000ff', splitColor: '#ff00ff', name: 'Pure Blue / Pure Magenta (Орбита)' }
+    ]
+  },
+
+  // ── 2. Cinematic & Atmospheric Themes ──────────────────────
   '⚡ Blade Runner 2049 (Неоновый нуар)': {
     id: 'bladerunner',
     title: '⚡ Blade Runner 2049 (Неоновый нуар)',
@@ -152,6 +232,8 @@ export const COLOR_THEMES = {
       { color: '#2a3038', splitColor: '#4a5360', name: 'Темный оружейный титан' }
     ]
   },
+
+  // ── 3. Classic Baseline ──────────────────────────────────
   '🌈 Classic Neon / True Obsidian': {
     id: 'classic',
     title: '🌈 Классический спектр (True Obsidian)',
