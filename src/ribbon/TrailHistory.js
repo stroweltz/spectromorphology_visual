@@ -305,21 +305,13 @@ export class TrailHistory {
       // ── 2. Continuous Sub-Segment Sliding along Spline for Head A ──
       const alphaA = THREE.MathUtils.clamp(this.accumDistA / Math.max(0.00001, segDist), 0.0, 1.0);
 
-      // Forward extrapolation point ahead of H_0 by segDist along motion direction
-      this._tmpDir.subVectors(headA, this._historyA[0]);
-      const lenDirA = this._tmpDir.length();
-      if (lenDirA > 0.00001) {
-        this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, (segDist - this.accumDistA) / lenDirA);
-      } else {
-        this._forwardPtA.copy(headA).addScaledVector(
-          new THREE.Vector2(Math.cos(headingAngle), Math.sin(headingAngle)),
-          segDist - this.accumDistA
-        );
-      }
+      // Forward extrapolation point ahead of head along exact kinematic heading
+      this._tmpDir.set(Math.cos(headingAngle), Math.sin(headingAngle));
+      this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, segDist - this.accumDistA);
 
       this.spine[0].copy(headA);
       this.widths[0] = headWidthA;
-      this.tangentsA[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
+      this.tangentsA[0].set(-this._tmpDir.x, -this._tmpDir.y);
 
       // Vertebrae 1..N-1: Each vertebra i is uniformly spaced at i * segDist behind head,
       // sliding continuously between milestone H_i and H_{i-1} with parameter alphaA.
@@ -380,19 +372,11 @@ export class TrailHistory {
       // ── 4. Continuous Sub-Segment Sliding along Spline for Head B ──
       const alphaB = THREE.MathUtils.clamp(this.accumDistB / Math.max(0.00001, segDist), 0.0, 1.0);
 
-      this._tmpDir.subVectors(headB, this._historyB[0]);
-      const lenDirB = this._tmpDir.length();
-      if (lenDirB > 0.00001) {
-        this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, (segDist - this.accumDistB) / lenDirB);
-      } else {
-        this._forwardPtB.copy(headB).addScaledVector(
-          new THREE.Vector2(Math.cos(headingAngle), Math.sin(headingAngle)),
-          segDist - this.accumDistB
-        );
-      }
+      this._tmpDir.set(Math.cos(headingAngle), Math.sin(headingAngle));
+      this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, segDist - this.accumDistB);
 
       this.splitSpine[0].copy(headB);
-      this.tangentsB[0].set(-Math.cos(headingAngle), -Math.sin(headingAngle));
+      this.tangentsB[0].set(-this._tmpDir.x, -this._tmpDir.y);
       if (!isSplitActive || (bifurcation.state === 'DRAINING' && bifurcation.splitDrainSteps > 0)) {
         this.splitWidths[0] = 0.0;
       } else {
