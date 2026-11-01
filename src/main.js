@@ -212,6 +212,7 @@ const params = {
   boundaryRadius: 0.58,
   minTurnRadius: 0.12,
   fixedPathTrail: true,         // Фиксированный след: где нарисовано, там и лежит
+  trailLength: 1.5,             // Длина шлейфа мазка (0.5..3.5)
   waveAmplitude: 3.5,           // Размах синусоиды [0..10] (3.5 = 0.028)
   waveFrequency: 3.5,           // Частота синусоиды вдоль пути
   randomSpeedMode: true,        // Режим независимых случайных скоростей
@@ -547,6 +548,9 @@ fFish.add(params, 'minTurnRadius', 0.0, 0.5, 0.01).name('Мин. радиус п
 });
 fFish.add(params, 'fixedPathTrail').name('📌 Фиксированный след').onChange(v => {
   ribbons.forEach(r => r.fixedPathTrail = v);
+});
+fFish.add(params, 'trailLength', 0.5, 3.5, 0.1).name('Длина шлейфа кисти').onChange(v => {
+  ribbons.forEach(r => r.trailLength = v);
 });
 fFish.add(params, 'waveAmplitude', 0.0, 10.0, 0.1).name('Амплитуда виляния (0..10)').onChange(v => {
   ribbons.forEach(r => r.waveAmp = v * 0.008);

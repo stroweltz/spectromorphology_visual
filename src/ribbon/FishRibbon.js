@@ -155,9 +155,10 @@ export class FishRibbon {
     this.splitMaterial = createPaperMaterial(options.splitColor || options.color || 0xff8533);
 
     // Spine points (positions along the backbone)
+    this.trailLength = options.trailLength ?? 1.5;
     this.spine = [];
     const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
-    const initSegDist = 0.018 * (this.speed / 1.0);
+    const initSegDist = this.trailLength / Math.max(1, this.segments - 1);
     for (let i = 0; i < this.segments; i++) {
       const p = this.headPos.clone().addScaledVector(initDir, -i * initSegDist);
       this.spine.push(p);
@@ -361,7 +362,7 @@ export class FishRibbon {
     this._wasAboveThreshold = true;
 
     const initDir = new THREE.Vector2(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
-    const initSegDist = 0.018 * (this.speed / 1.0);
+    const initSegDist = this.trailLength / Math.max(1, this.segments - 1);
     for (let i = 0; i < this.segments; i++) {
       this.spine[i].copy(this.headPos).addScaledVector(initDir, -i * initSegDist);
       this.splitSpine[i].copy(this.spine[i]);
@@ -372,6 +373,10 @@ export class FishRibbon {
       this._historyWidthsA[i] = this.currentWidth;
       this._historyWidthsB[i] = this.currentWidth;
     }
+    this._accumDistA = 0.0;
+    this._accumDistB = 0.0;
+    this._prevRecordedPosA.copy(this.headA);
+    this._prevRecordedPosB.copy(this.headB);
     this.widths.fill(this.currentWidth);
     this.splitWidths.fill(this.currentWidth);
   }
@@ -403,6 +408,8 @@ export class FishRibbon {
       this.splitSpine[i].copy(this.spine[i]);
     }
     this.splitWidths.fill(0.0);
+    this._accumDistB = 0.0;
+    this._prevRecordedPosB.copy(this.headB);
   }
 
   /**
@@ -756,21 +763,31 @@ export class FishRibbon {
 
     // Forward speed (from kinematics)
     const v = this._currentV;
+    const segDist = Math.max(0.005, this.trailLength / Math.max(1, this.segments - 1));
 
     if (this.fixedPathTrail) {
-      // ── 3. Dense Frame History Trail (100% Rock-Solid Fixed Path) ──
-      // Eliminates chord-cutting, while-loop aliasing, and 60 Hz normal wobbling.
-      // Every vertebra once drawn on screen retains its EXACT world coordinates, normal, and width.
+      // ── 3. Dense Fixed-Distance History Trail ──
+      // Retains full user-configurable length without shrinking or disappearing.
+      // Once placed on paper, vertebrae 1..N-1 are 100% frozen in world coordinates.
 
       // Head A history update:
       const dStepA = this.headA.distanceTo(this._prevHeadAPos);
       this._prevHeadAPos.copy(this.headA);
+      this._accumDistA += dStepA;
 
-      if (dStepA > 0.00001) {
-        for (let i = this.segments - 1; i > 0; i--) {
+      let itersA = 5;
+      while (this._accumDistA >= segDist && itersA-- > 0) {
+        const t = THREE.MathUtils.clamp(segDist / Math.max(0.00001, this._accumDistA), 0.0, 1.0);
+        this._tmpHead.lerpVectors(this._prevRecordedPosA, this.headA, t);
+        this._prevRecordedPosA.copy(this._tmpHead);
+        this._accumDistA -= segDist;
+
+        for (let i = this.segments - 1; i > 1; i--) {
           this.spine[i].copy(this.spine[i - 1]);
           this.widths[i] = this.widths[i - 1];
         }
+        this.spine[1].copy(this._tmpHead);
+        this.widths[1] = headWidthA;
       }
       this.spine[0].copy(this.headA);
       this.widths[0] = headWidthA;
@@ -778,28 +795,42 @@ export class FishRibbon {
       // Head B history update:
       const dStepB = this.headB.distanceTo(this._prevHeadBPos);
       this._prevHeadBPos.copy(this.headB);
+      this._accumDistB += dStepB;
 
       const isSplitActive = (this.splitState !== 'CLOSED');
 
       if (this.splitState !== 'CLOSED') {
         this.splitDistSinceStart += dStepB;
       }
-      if (this.splitState === 'DRAINING') {
-        this.splitDrainDist += dStepB;
-        this.splitDrainSteps++;
-        if (this.splitDrainSteps >= this.segments) {
-          this.splitState = 'CLOSED';
-          this.splitProgress = 0.0;
-          this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
-        }
-      }
 
-      if (dStepB > 0.00001) {
-        for (let i = this.segments - 1; i > 0; i--) {
+      let itersB = 5;
+      while (this._accumDistB >= segDist && itersB-- > 0) {
+        const t = THREE.MathUtils.clamp(segDist / Math.max(0.00001, this._accumDistB), 0.0, 1.0);
+        this._tmpHead.lerpVectors(this._prevRecordedPosB, this.headB, t);
+        this._prevRecordedPosB.copy(this._tmpHead);
+        this._accumDistB -= segDist;
+
+        for (let i = this.segments - 1; i > 1; i--) {
           this.splitSpine[i].copy(this.splitSpine[i - 1]);
           this.splitWidths[i] = this.splitWidths[i - 1];
         }
+        this.splitSpine[1].copy(this._tmpHead);
+        if (this.splitState === 'DRAINING' && this.splitDrainSteps > 0) {
+          this.splitWidths[1] = 0.0;
+        } else {
+          this.splitWidths[1] = headWidthB;
+        }
+
+        if (this.splitState === 'DRAINING') {
+          this.splitDrainSteps++;
+          if (this.splitDrainSteps >= this.segments) {
+            this.splitState = 'CLOSED';
+            this.splitProgress = 0.0;
+            this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
+          }
+        }
       }
+
       this.splitSpine[0].copy(this.headB);
       if (!isSplitActive || (this.splitState === 'DRAINING' && this.splitDrainSteps > 0)) {
         this.splitWidths[0] = 0.0;
