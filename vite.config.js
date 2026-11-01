@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 export default defineConfig({
+  base: './',
   server: {
     port: 5176,
     open: false
