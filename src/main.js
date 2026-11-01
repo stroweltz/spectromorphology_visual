@@ -383,8 +383,8 @@ const params = {
   fboResolution: defaultFbo,
   screenDpi: 1.5,
   autoRadiusCoupling: true,
-  thermalGovernor: true,        // Эко-режим охлаждения (30 FPS в покое / 60 FPS в движении)
-  autoSleep: true               // Авто-сон при долгом бездействии (10 мин без взаимодействия)
+  keepAwake: true,              // Не давать экрану гаснуть (Wake Lock для вечеринок/VJ)
+  batteryEcoMode: false         // Эко-режим только при работе от батареи
 };
 
 // Sync initial background uniforms with params
@@ -883,8 +883,10 @@ const perfParams = { showTelemetry: true };
 fPerf.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS HUD').onChange(v => {
   if (hudPerf) hudPerf.style.display = v ? 'inline-flex' : 'none';
 });
-fPerf.add(params, 'thermalGovernor').name('❄️ Термо-контроль (Eco 30/60)');
-fPerf.add(params, 'autoSleep').name('💤 Авто-сон (10 мин бездействия)');
+fPerf.add(params, 'keepAwake').name('💡 Не гасить экран (VJ / Пати)').onChange(v => {
+  if (v) acquireWakeLock(); else releaseWakeLock();
+});
+fPerf.add(params, 'batteryEcoMode').name('🔋 Эко-режим (только от батареи)');
 fPerf.add(params, 'fboResolution', {
   '👑 4K Cinema (3840px · Максимум)': 3840,
   '💎 Ультра Retina (2560px · Рекомендуется)': 2560,
@@ -1308,106 +1310,64 @@ function sendPerfTelemetry(metrics) {
   } catch (e) {}
 }
 
-// ── Smart Tab Visibility, Inactivity Sleep & Thermal Governor ──
-// Exactly as in black_hole: complete GPU shutdown when tab is obscured,
-// 0% CPU & 0% GPU when minimized or sleeping, and 30 FPS Eco thermal cooling in idle.
-let lastUserActionTime = performance.now();
-let lastFrameTime = 0;
-let isAppSleeping = false;
-let isWindowFocused = true;
+// ── Smart Display Sleep & Background Zero-GPU System ──
+// 1. If screen turns off, locks, or tab is hidden: 0.0% CPU & 0.0% GPU (render loop completely halts).
+// 2. While the screen is ON (or PC/laptop on mains power): runs at full high-performance (60 FPS)
+//    without interrupting ambient viewing, DJ sets, or screensaver mode.
+let isRunningOnBattery = false;
 let rafId = null;
 
-const sleepOverlay = document.getElementById('sleep-overlay');
-const sleepResumeBtn = document.getElementById('sleep-resume-btn');
-
-function enterSleepMode() {
-  if (isAppSleeping) return;
-  isAppSleeping = true;
-  if (rafId) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-  if (sleepOverlay) {
-    sleepOverlay.style.display = 'flex';
-    requestAnimationFrame(() => sleepOverlay.classList.add('active'));
-  }
-  if (perfFpsEl) {
-    perfFpsEl.textContent = '💤 СОН (0% GPU)';
-    perfFpsEl.style.color = '#a0aec0';
-  }
-  console.log('[Spectromorphology] Deep sleep engaged: GPU shutdown to 0% for cooling.');
+if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
+  navigator.getBattery().then(b => {
+    const syncBattery = () => { isRunningOnBattery = !b.charging; };
+    syncBattery();
+    b.addEventListener('chargingchange', syncBattery);
+  }).catch(() => {});
 }
 
-function wakeUpFromSleep() {
-  if (!isAppSleeping) return;
-  isAppSleeping = false;
-  lastUserActionTime = performance.now();
-  if (sleepOverlay) {
-    sleepOverlay.classList.remove('active');
-    setTimeout(() => {
-      if (!isAppSleeping) sleepOverlay.style.display = 'none';
-    }, 400);
+// ── Screen Wake Lock (Keeps display awake during parties / ambient installations) ──
+let screenWakeLock = null;
+async function acquireWakeLock() {
+  if ('wakeLock' in navigator && !screenWakeLock) {
+    try {
+      screenWakeLock = await navigator.wakeLock.request('screen');
+      screenWakeLock.addEventListener('release', () => {
+        screenWakeLock = null;
+      });
+    } catch (err) {}
   }
-  clock.getDelta();
-  prevRafTime = performance.now();
-  lastFrameTime = performance.now();
-  lastPerfSampleTime = performance.now();
-  frameCounter = 0;
-  accumCpuMs = 0;
-  accumGpuMs = 0;
-  accumFrameMs = 0;
-  frameIntervalHistory.length = 0;
-  if (!rafId && (!document || !document.hidden)) {
-    rafId = requestAnimationFrame(animate);
+}
+function releaseWakeLock() {
+  if (screenWakeLock) {
+    screenWakeLock.release().catch(() => {});
+    screenWakeLock = null;
   }
-  console.log('[Spectromorphology] Wake-up: Restoring 60 FPS.');
 }
 
-const recordUserAction = () => {
-  lastUserActionTime = performance.now();
-  if (isAppSleeping) {
-    wakeUpFromSleep();
-  }
-};
-
-['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(evt => {
-  window.addEventListener(evt, recordUserAction, { passive: true });
-});
-
-if (sleepResumeBtn) {
-  sleepResumeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    wakeUpFromSleep();
-  });
+// Automatically acquire Wake Lock when keepAwake is enabled
+if (params.keepAwake) {
+  acquireWakeLock();
 }
 
-window.addEventListener('blur', () => {
-  isWindowFocused = false;
-});
-window.addEventListener('focus', () => {
-  isWindowFocused = true;
-  lastUserActionTime = performance.now();
-});
-
+// Complete GPU shutdown when display sleeps, PC locks, or tab is hidden
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      // 1. Complete GPU shutdown when tab is hidden or minimized:
-      // Cancel requestAnimationFrame so the browser consumes 0.0% CPU and 0.0% GPU!
+      // Screen turned off, PC locked, or tab minimized:
+      // Cancel requestAnimationFrame completely -> 0% CPU, 0% GPU!
       if (rafId) {
         cancelAnimationFrame(rafId);
         rafId = null;
       }
       if (perfFpsEl) {
-        perfFpsEl.textContent = 'ФОН (0% GPU)';
+        perfFpsEl.textContent = 'ЭКРАН ВЫКЛ (0% GPU)';
         perfFpsEl.style.color = '#a0aec0';
       }
     } else {
-      // 2. Tab became visible again: restore loop cleanly without time-jump
-      if (!isAppSleeping && !rafId) {
+      // Screen turned back on: instantly resume 60 FPS without delta jump
+      if (!rafId) {
         clock.getDelta();
         prevRafTime = performance.now();
-        lastFrameTime = performance.now();
         lastPerfSampleTime = performance.now();
         frameCounter = 0;
         accumCpuMs = 0;
@@ -1419,6 +1379,9 @@ if (typeof document !== 'undefined') {
           perfFpsEl.textContent = '60.0 FPS';
           perfFpsEl.style.color = '#48bb78';
         }
+        if (params.keepAwake) {
+          acquireWakeLock();
+        }
       }
     }
   });
@@ -1427,14 +1390,11 @@ if (typeof document !== 'undefined') {
 // 6. Animation Loop
 const clock = new THREE.Clock();
 let currentRotation = 0.0;
+let lastBatteryFrameTime = 0;
 
 function animate(rafTimestamp) {
-  // If tab is hidden or sleeping: completely halt scheduling (0% CPU / 0% GPU)
+  // If display is off, PC locked, or tab hidden: halt immediately (0% GPU)
   if (typeof document !== 'undefined' && document.hidden) {
-    rafId = null;
-    return;
-  }
-  if (isAppSleeping) {
     rafId = null;
     return;
   }
@@ -1444,25 +1404,13 @@ function animate(rafTimestamp) {
 
   const now = performance.now();
 
-  // A. Auto-Sleep after 10 minutes of complete inactivity
-  // Prevents GPU from running for hours when the user leaves the computer unattended!
-  const INACTIVITY_TIMEOUT = 10 * 60 * 1000;
-  if (params.autoSleep && (now - lastUserActionTime > INACTIVITY_TIMEOUT)) {
-    enterSleepMode();
-    return;
-  }
-
-  // B. Cinematic Thermal Governor (как в black_hole):
-  // When idle (> 4s without mouse/touch) or when window is blurred (user working in another app):
-  // Throttle to 30 FPS to reduce GPU heat and power by 60%!
-  // As soon as user touches mouse/controls: instantly jumps to 60 FPS!
-  const isIdle = (now - lastUserActionTime > 4000) || !isWindowFocused;
-  if (params.thermalGovernor && isIdle) {
-    if (now - lastFrameTime < 32.5) {
-      return; // Skip rendering this frame (cools GPU down by ~10-15 °C)
+  // If user explicitly enabled batteryEcoMode AND device is on battery:
+  if (params.batteryEcoMode && isRunningOnBattery) {
+    if (now - lastBatteryFrameTime < 32.5) {
+      return; // 30 FPS eco throttle to preserve battery
     }
   }
-  lastFrameTime = now;
+  lastBatteryFrameTime = now;
 
   const tFrameStart = performance.now();
   let rafDelta = (prevRafTime > 0) ? (tFrameStart - prevRafTime) : 16.6;
@@ -1596,7 +1544,7 @@ function animate(rafTimestamp) {
     };
 
     if (perfFpsEl) {
-      const ecoTag = isIdle && params.thermalGovernor ? ' [Eco 30]' : '';
+      const ecoTag = params.batteryEcoMode && isRunningOnBattery ? ' [Eco 30]' : '';
       perfFpsEl.textContent = `${avgFps.toFixed(1)} FPS${ecoTag}`;
       perfFpsEl.style.color = avgFps >= 50 ? '#48bb78' : (avgFps >= 26 ? '#ecc94b' : '#f56565');
     }
@@ -1633,7 +1581,7 @@ function animate(rafTimestamp) {
       sectors: params.sectors,
       mirror: params.mirror,
       bifurcatedCount: ribbons.filter(r => r.splitState !== 'CLOSED').length,
-      isTabVisible: !document.hidden && !isAppSleeping
+      isTabVisible: !document.hidden
     });
   }
 }
