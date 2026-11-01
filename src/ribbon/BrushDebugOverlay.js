@@ -443,9 +443,9 @@ export class BrushDebugOverlay {
       this._headDots[idx].scale.setScalar(0.07 * pulse);
 
       // ── 2b. Secondary split spine & head dot (when bifurcated) ──
-      const isSplitActive = ribbon.splitProgress > 0.05;
+      const isSplitActive = ribbon.splitState !== 'CLOSED';
       this._splitSpineLines[idx].visible = isSplitActive;
-      this._splitHeadDots[idx].visible   = isSplitActive;
+      this._splitHeadDots[idx].visible   = isSplitActive && (ribbon.splitProgress > 0.05);
 
       if (isSplitActive) {
         const splitSpine = ribbon.splitSpine;

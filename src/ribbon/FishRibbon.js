@@ -42,9 +42,11 @@ export class FishRibbon {
     this.splitCloseDuration = 1.3;                              // Seconds to merge back smoothly
     this.splitMinCooldown = options.splitMinCooldown ?? 7.0;    // Minimum seconds between split events
     this.splitCooldown = 2.5 + (this.phaseOffset * 2.3) % 4.5;  // Stagger initial split opportunity per ribbon
-    this.splitState = 'CLOSED';                                 // 'CLOSED', 'OPENING', 'SUSTAINED', 'CLOSING'
+    this.splitState = 'CLOSED';                                 // 'CLOSED', 'OPENING', 'SUSTAINED', 'CLOSING', 'DRAINING'
     this.splitProgress = 0.0;                                   // 0.0 = merged single brush, 1.0 = fully split
     this.splitTimer = 0.0;
+    this.splitSegmentsSinceStart = 0;                           // History steps accumulated since split opened
+    this.splitDrainSteps = 0;                                   // History steps accumulated since heads merged
     this.currentSplitDuration = this.splitDuration;
     this.splitMaxCap = this.maxWidth;                           // Active upper width ceiling during bifurcation
     this._wasAboveThreshold = true;
@@ -340,6 +342,8 @@ export class FishRibbon {
     this.splitState = 'CLOSED';
     this.splitProgress = 0.0;
     this.splitTimer = 0.0;
+    this.splitSegmentsSinceStart = 0;
+    this.splitDrainSteps = 0;
     this.splitCooldown = 2.5 + (this.phaseOffset * 2.3) % 4.5;
     this.splitMaxCap = this.maxWidth;
     this.splitMesh.visible = false;
@@ -373,6 +377,8 @@ export class FishRibbon {
     this.splitState = 'OPENING';
     this.splitProgress = (force && this.splitProgress > 0) ? this.splitProgress : 0.0;
     this.splitTimer = 0.0;
+    this.splitSegmentsSinceStart = 0;
+    this.splitDrainSteps = 0;
     this.currentSplitDuration = this.splitDuration * (0.85 + Math.random() * 0.3);
     const thresholdWidth = this.maxWidth * this.splitThreshold;
     const w = (currentWidth !== undefined && currentWidth > 0) ? currentWidth : thresholdWidth;
@@ -628,7 +634,9 @@ export class FishRibbon {
       }
     } else if (this.splitState !== 'CLOSED') {
       // If disabled mid-split, smoothly close
-      this.splitState = 'CLOSING';
+      if (this.splitState !== 'DRAINING') {
+        this.splitState = 'CLOSING';
+      }
     }
 
     // Advance split lifecycle
@@ -653,8 +661,9 @@ export class FishRibbon {
       this.splitProgress = 1.0 - t * t * (3.0 - 2.0 * t); // Smoothstep 1 -> 0
       if (t >= 1.0) {
         this.splitProgress = 0.0;
-        this.splitState = 'CLOSED';
-        this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
+        this.splitState = 'DRAINING';
+        this.splitDrainSteps = 0;
+        this.splitTimer = 0.0;
       }
     }
 
@@ -662,10 +671,10 @@ export class FishRibbon {
     // "при активации раздвоения эта толщина не будет увеличена (будет новым временным порогом
     // толщины до той поры, пока две головы вновь не схлопнутся)"
     let effectiveHeadWidth = rawHeadWidth;
-    if (this.splitState !== 'CLOSED') {
+    if (this.splitState !== 'CLOSED' && this.splitState !== 'DRAINING') {
       effectiveHeadWidth = Math.min(rawHeadWidth, this.splitMaxCap);
     } else {
-      // Once closed, smoothly release the cap back up to maxWidth
+      // Once closed or draining (heads merged), smoothly release the cap back up to maxWidth
       if (this.splitMaxCap < this.maxWidth) {
         this.splitMaxCap += (this.maxWidth - this.splitMaxCap) * Math.min(1.0, clampedDelta * 1.6);
       }
@@ -785,6 +794,18 @@ export class FishRibbon {
         }
         this._historyB[0].copy(this._tmpHead);
         this._historyWidthsB[0] = headWidthB;
+
+        if (this.splitState !== 'CLOSED') {
+          this.splitSegmentsSinceStart++;
+        }
+        if (this.splitState === 'DRAINING') {
+          this.splitDrainSteps++;
+          if (this.splitDrainSteps >= Math.min(this.segments, this.splitSegmentsSinceStart)) {
+            this.splitState = 'CLOSED';
+            this.splitProgress = 0.0;
+            this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
+          }
+        }
       }
 
       // Populate spine and widths buffers:
@@ -797,10 +818,42 @@ export class FishRibbon {
       }
 
       this.splitSpine[0].copy(this.headB);
-      this.splitWidths[0] = headWidthB;
+
+      const isSplitActive = (this.splitState !== 'CLOSED');
+      const startDrain = this.splitDrainSteps;
+      const endFork = this.splitSegmentsSinceStart;
+
+      // Leading head vertebra (index 0)
+      if (!isSplitActive || (this.splitState === 'DRAINING' && startDrain > 0)) {
+        this.splitWidths[0] = 0.0;
+      } else {
+        this.splitWidths[0] = headWidthB;
+      }
+
       for (let i = 1; i < this.segments; i++) {
         this.splitSpine[i].copy(this._historyB[i - 1]);
-        this.splitWidths[i] = this._historyWidthsB[i - 1];
+
+        if (!isSplitActive) {
+          this.splitWidths[i] = 0.0;
+        } else {
+          const histIdx = i - 1;
+          // Segments in front of the merge junction: width = 0 (stroke A is already drawing this!)
+          if (this.splitState === 'DRAINING' && histIdx < startDrain) {
+            this.splitWidths[i] = 0.0;
+          }
+          // Segments before the split occurred: width = 0
+          else if (histIdx >= endFork) {
+            this.splitWidths[i] = 0.0;
+          }
+          // The junction point where the tail meets the main branch smoothly tapers into the parent branch:
+          else if (this.splitState === 'DRAINING' && histIdx === startDrain) {
+            this.splitWidths[i] = this._historyWidthsB[histIdx] * 0.5;
+          }
+          // Active fork body: full recorded width
+          else {
+            this.splitWidths[i] = this._historyWidthsB[histIdx];
+          }
+        }
       }
     } else {
       // Legacy IK kinematic drag (if user toggles off fixedPathTrail)
@@ -840,6 +893,18 @@ export class FishRibbon {
       this._prevHeadBPos.copy(this.headB);
       const shiftB = (segDist > 0.0001) ? (dStepB / segDist) : 0.0;
       this._advectWidths(this.splitWidths, this._splitNewWidths, headWidthB, shiftB);
+
+      if (this.splitState !== 'CLOSED') {
+        this.splitSegmentsSinceStart += Math.round(shiftB);
+      }
+      if (this.splitState === 'DRAINING') {
+        this.splitDrainSteps += shiftB;
+        if (this.splitDrainSteps >= this.segments) {
+          this.splitState = 'CLOSED';
+          this.splitProgress = 0.0;
+          this.splitCooldown = this.splitMinCooldown * (0.8 + Math.random() * 0.4);
+        }
+      }
     }
 
     // ── 5. Lateral Offsets ──
@@ -865,10 +930,10 @@ export class FishRibbon {
     this._updateMeshGeometry(this.geometry, this.spine, this._lateralOffsetsA, this.widths, this._centerline);
 
     // ── 7. Update Split Branch Ribbon Mesh Vertices ──
-    if (this.splitProgress > 0.001) {
+    if (this.splitState !== 'CLOSED') {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
-      this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(this.splitProgress * 1.5, 0.0, 0.95);
+      this.splitMaterial.uniforms.uOpacity.value = 0.92;
       this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline);
     } else {
       this.splitMesh.visible = false;
