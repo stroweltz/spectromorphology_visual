@@ -17,9 +17,10 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Logs
+# Logs & Perf
 *.log
 npm-debug.log*
+.perf_report.json
 
 # Env
 .env

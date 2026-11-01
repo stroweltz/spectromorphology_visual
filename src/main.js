@@ -13,6 +13,7 @@ const height = window.innerHeight;
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(width, height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accumulation
 container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
@@ -326,6 +327,11 @@ gui.add({
   }
 }, 'rerollAll').name('🎲 Случайный ансамбль (всё)');
 
+const perfParams = { showTelemetry: true };
+gui.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS').onChange(v => {
+  if (hudPerf) hudPerf.style.display = v ? 'inline-flex' : 'none';
+});
+
 const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
 const layerParams = {
   layer1: true,
@@ -544,25 +550,78 @@ function handleResize() {
 }
 window.addEventListener('resize', handleResize);
 
+// ── Performance Telemetry & Metrics HUD ──
+const hudPerf = document.getElementById('hud-perf');
+const perfFpsEl = document.getElementById('perf-fps');
+const perfFrameTimeEl = document.getElementById('perf-frametime');
+const perfCpuEl = document.getElementById('perf-cpu');
+const perfGpuEl = document.getElementById('perf-gpu');
+const perfDrawsEl = document.getElementById('perf-draws');
+
+let lastPerfSampleTime = performance.now();
+let lastPostTime = performance.now();
+let prevRafTime = performance.now();
+let frameCounter = 0;
+let accumCpuMs = 0;
+let accumGpuMs = 0;
+let accumFrameMs = 0;
+let maxFrameIntervalMs = 0;
+
+let liveMetrics = {
+  fps: 60,
+  frameTimeMs: 16.6,
+  maxIntervalMs: 16.6,
+  cpuMs: 1.0,
+  gpuMs: 15.6,
+  drawCalls: 0,
+  triangles: 0
+};
+
+function sendPerfTelemetry(metrics) {
+  try {
+    fetch('/api/perf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metrics)
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 // 6. Animation Loop
 const clock = new THREE.Clock();
 let currentRotation = 0.0;
 
-function animate() {
+function animate(rafTimestamp) {
   requestAnimationFrame(animate);
+
+  const tFrameStart = performance.now();
+  const rafDelta = tFrameStart - prevRafTime;
+  prevRafTime = tFrameStart;
+  if (rafDelta > maxFrameIntervalMs) {
+    maxFrameIntervalMs = rafDelta;
+  }
+
+  // Reset multi-pass counters for this frame
+  renderer.info.reset();
 
   const delta = clock.getDelta();
   const elapsedTime = clock.getElapsedTime();
 
-  // 1. Update Fish Ribbons (Kinematics, wave, splitting)
+  // 1. Update Fish Ribbons (Kinematics, wave, splitting on CPU)
+  const tCpuStart = performance.now();
   ribbons.forEach(ribbon => {
     ribbon.update(elapsedTime, delta);
   });
 
   // 1b. Update debug overlay (reads updated spine data)
   brushDebug.update();
+  const tCpuEnd = performance.now();
+  const cpuMs = tCpuEnd - tCpuStart;
 
-  // 2. Render Strokes into Offscreen FBO
+  // 2. Render passes on GPU
+  const tGpuStart = performance.now();
+
+  // Render Strokes into Offscreen FBO
   renderer.setRenderTarget(strokeRenderTarget);
   if (!params.persistentCanvas) {
     renderer.setClearColor(0x000000, 0.0); // Transparent background for strokes
@@ -587,6 +646,73 @@ function animate() {
     kaleidoscopeMaterial.uniforms.uTime.value = elapsedTime;
 
     renderer.render(mainScene, mainCamera);
+  }
+
+  const tGpuEnd = performance.now();
+  const gpuMs = tGpuEnd - tGpuStart;
+  const frameMs = performance.now() - tFrameStart;
+
+  // Telemetry accumulation
+  frameCounter++;
+  accumCpuMs += cpuMs;
+  accumGpuMs += gpuMs;
+  accumFrameMs += frameMs;
+
+  const now = performance.now();
+  const sampleElapsed = now - lastPerfSampleTime;
+
+  if (sampleElapsed >= 500) {
+    const avgFps = Math.round((frameCounter / (sampleElapsed / 1000)) * 10) / 10;
+    const avgFrameTime = Math.round((accumFrameMs / frameCounter) * 10) / 10;
+    const avgCpu = Math.round((accumCpuMs / frameCounter) * 10) / 10;
+    const avgGpu = Math.round((accumGpuMs / frameCounter) * 10) / 10;
+    const maxInterval = Math.round(maxFrameIntervalMs * 10) / 10;
+    const calls = renderer.info.render.calls;
+    const triangles = renderer.info.render.triangles;
+
+    liveMetrics = {
+      fps: avgFps,
+      frameTimeMs: avgFrameTime,
+      maxIntervalMs: maxInterval,
+      cpuMs: avgCpu,
+      gpuMs: avgGpu,
+      drawCalls: calls,
+      triangles: triangles
+    };
+
+    if (perfFpsEl) {
+      perfFpsEl.textContent = `${avgFps.toFixed(1)} FPS`;
+      perfFpsEl.style.color = avgFps >= 55 ? '#48bb78' : (avgFps >= 35 ? '#ecc94b' : '#f56565');
+    }
+    if (perfFrameTimeEl) {
+      perfFrameTimeEl.textContent = `${avgFrameTime.toFixed(1)}ms (max: ${maxInterval.toFixed(0)}ms)`;
+    }
+    if (perfCpuEl) perfCpuEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms`;
+    if (perfGpuEl) perfGpuEl.textContent = `GPU: ${avgGpu.toFixed(1)}ms`;
+    if (perfDrawsEl) perfDrawsEl.textContent = `${calls} calls · ${(triangles / 1000).toFixed(1)}k tris`;
+
+    frameCounter = 0;
+    accumCpuMs = 0;
+    accumGpuMs = 0;
+    accumFrameMs = 0;
+    maxFrameIntervalMs = 0;
+    lastPerfSampleTime = now;
+  }
+
+  // Periodic report to server every 1.5s
+  if (now - lastPostTime >= 1500) {
+    lastPostTime = now;
+    sendPerfTelemetry({
+      ...liveMetrics,
+      timestamp: Date.now(),
+      fboSize: FBO_SIZE,
+      screen: `${window.innerWidth}x${window.innerHeight}`,
+      pixelRatio: window.devicePixelRatio,
+      sectors: params.sectors,
+      mirror: params.mirror,
+      bifurcatedCount: ribbons.filter(r => r.splitState !== 'CLOSED').length,
+      isTabVisible: !document.hidden
+    });
   }
 }
 
