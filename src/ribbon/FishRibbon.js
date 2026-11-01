@@ -761,6 +761,9 @@ export class FishRibbon {
     // Forward speed (from kinematics)
     const v = this._currentV;
     const segDist = 0.018 * (this.speed / 1.0);
+    const safeSegDist = Math.max(0.001, segDist);
+    let fracA = 0.0;
+    let fracB = 0.0;
 
     if (this.fixedPathTrail) {
       // ── 3. Fixed Path Trail (Immutable Trajectory History) ──
@@ -772,7 +775,6 @@ export class FishRibbon {
       this._prevHeadAPos.copy(this.headA);
       this._accumDistA += dStepA;
 
-      const safeSegDist = Math.max(0.001, segDist);
       const historyCap = this._historyA.length;
       let itersA = 20;
       while (this._accumDistA >= safeSegDist && itersA-- > 0) {
@@ -822,8 +824,8 @@ export class FishRibbon {
       }
 
       // Continuous sub-segment sliding phase [0, 1) along the historical polyline
-      const fracA = THREE.MathUtils.clamp(this._accumDistA / safeSegDist, 0.0, 1.0);
-      const fracB = THREE.MathUtils.clamp(this._accumDistB / safeSegDist, 0.0, 1.0);
+      fracA = THREE.MathUtils.clamp(this._accumDistA / safeSegDist, 0.0, 1.0);
+      fracB = THREE.MathUtils.clamp(this._accumDistB / safeSegDist, 0.0, 1.0);
 
       // Vertebra 0: Active leading head tip
       this.spine[0].copy(this.headA);
