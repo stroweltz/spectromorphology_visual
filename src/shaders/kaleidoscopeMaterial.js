@@ -18,6 +18,12 @@ export function createKaleidoscopeMaterial() {
       uNebulaSpeed: { value: 0.25 },
       uNebulaIntensity: { value: 0.55 },
       uNebulaScale: { value: 1.4 },
+      // Precomputed CPU blob centers (eliminates millions of trigonometric calls in fragment shader)
+      uBlob1: { value: new THREE.Vector2() },
+      uBlob2: { value: new THREE.Vector2() },
+      uBlob3: { value: new THREE.Vector2() },
+      uBlob4: { value: new THREE.Vector2() },
+      uBreath: { value: 1.0 },
       uVignette: { value: 0.75 },
       uAspect: { value: 1.0 },
       uFilmGrain: { value: 0.0 },
@@ -47,6 +53,11 @@ export function createKaleidoscopeMaterial() {
       uniform float uNebulaSpeed;
       uniform float uNebulaIntensity;
       uniform float uNebulaScale;
+      uniform vec2 uBlob1;
+      uniform vec2 uBlob2;
+      uniform vec2 uBlob3;
+      uniform vec2 uBlob4;
+      uniform float uBreath;
       uniform float uVignette;
       uniform float uAspect;
       uniform float uFilmGrain;
@@ -58,7 +69,7 @@ export function createKaleidoscopeMaterial() {
 
       void main() {
         // ── Mandala display mode ────────────────────────────────
-        // The FBO already contains the full mandala pattern
+        // The FBO contains the full mandala pattern
         // (ribbons are instanced N× with rotations + optional mirror).
         // This shader maps the square FBO to screen with
         // aspect correction, rotation, zoom, background & vignette.
@@ -92,7 +103,8 @@ export function createKaleidoscopeMaterial() {
 
         if (uBgType > 0.5) {
           vec2 pBg = (vUv - uCenter) * vec2(uAspect, 1.0);
-          float dist = length(pBg);
+          float distSq = dot(pBg, pBg);
+          float dist = sqrt(distSq);
 
           if (uBgType < 1.5) {
             // Mode 1: Classic Soft Radial
@@ -101,31 +113,21 @@ export function createKaleidoscopeMaterial() {
 
           } else if (uBgType < 2.5) {
             // Mode 2: Deep Ambient Nebula (Дыхание Бездны)
-            // Procedural ultra-blurred Gaussian light pools with slow organic drift
-            float t = uTime * uNebulaSpeed;
+            // Ultra-optimized analytical Gaussian metablobs: zero trigonometric operations in fragment shader
             float scale = max(0.3, uNebulaScale);
             float invS2 = 1.0 / (scale * scale);
 
-            // Orbiting soft Gaussian light vortex 1 (primary color)
-            vec2 c1 = vec2(sin(t * 0.35) * 0.42, cos(t * 0.27) * 0.30) * scale;
-            float d1 = length(pBg - c1);
-            float b1 = exp(-d1 * d1 * 2.4 * invS2);
+            vec2 d1 = pBg - uBlob1;
+            float b1 = exp(-dot(d1, d1) * (2.4 * invS2));
 
-            // Orbiting soft Gaussian light vortex 2 (accent color)
-            vec2 c2 = vec2(cos(t * 0.31 + 2.1) * 0.46, sin(t * 0.43 + 1.2) * 0.34) * scale;
-            float d2 = length(pBg - c2);
-            float b2 = exp(-d2 * d2 * 2.8 * invS2);
+            vec2 d2 = pBg - uBlob2;
+            float b2 = exp(-dot(d2, d2) * (2.8 * invS2));
 
-            // Breathing central light vortex 3
-            float breath = 0.82 + 0.18 * sin(t * 0.65);
-            vec2 c3 = vec2(sin(t * 0.19 + 4.2) * 0.15, cos(t * 0.24 + 3.1) * 0.15) * scale;
-            float d3 = length(pBg - c3);
-            float b3 = exp(-d3 * d3 * 4.0 * invS2) * breath;
+            vec2 d3 = pBg - uBlob3;
+            float b3 = exp(-dot(d3, d3) * (4.0 * invS2)) * uBreath;
 
-            // Secondary slow counter-drift vortex 4
-            vec2 c4 = vec2(cos(t * 0.22 + 5.1) * 0.32, sin(t * 0.25 + 2.4) * 0.36) * scale;
-            float d4 = length(pBg - c4);
-            float b4 = exp(-d4 * d4 * 3.2 * invS2);
+            vec2 d4 = pBg - uBlob4;
+            float b4 = exp(-dot(d4, d4) * (3.2 * invS2));
 
             // Ultra-soft radial falloff towards screen borders
             float outerFalloff = smoothstep(1.35, 0.25, dist);

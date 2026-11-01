@@ -50,14 +50,15 @@ container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
 // Configurable resolution for ultra-crisp paper fiber edges and optimal GPU fillrate
-const defaultFbo = (typeof window !== 'undefined' && window.innerWidth <= 768) ? 1536 : 2560;
+const isMobileOrIntegrated = (typeof window !== 'undefined' && (window.innerWidth <= 1024 || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)));
+const defaultFbo = isMobileOrIntegrated ? 1536 : 1920;
 let currentFboSize = defaultFbo;
 const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFboSize, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
   type: THREE.UnsignedByteType,
-  samples: 4 // Hardware 4x MSAA anti-aliasing on FBO canvas
+  samples: 1 // 1x sample: Zero MSAA resolve overhead; paper shader has analytical AA!
 });
 
 function setFboResolution(size) {
@@ -379,7 +380,7 @@ const params = {
   filmGrain: 0.0,
 
   // Performance & Graphics
-  fboResolution: (typeof window !== 'undefined' && window.innerWidth <= 768) ? 1536 : 2560,
+  fboResolution: defaultFbo,
   screenDpi: 1.5,
   autoRadiusCoupling: true
 };
@@ -1419,6 +1420,15 @@ function animate(rafTimestamp) {
     }
     kaleidoscopeMaterial.uniforms.uRotation.value = currentRotation;
     kaleidoscopeMaterial.uniforms.uTime.value = elapsedTime;
+
+    // Precompute CPU blob centers for background nebula (zero trigonometric calls on GPU)
+    const tNeb = elapsedTime * params.nebulaSpeed * 0.10;
+    const scale = Math.max(0.3, params.nebulaScale);
+    kaleidoscopeMaterial.uniforms.uBlob1.value.set(Math.sin(tNeb * 0.35) * 0.42 * scale, Math.cos(tNeb * 0.27) * 0.30 * scale);
+    kaleidoscopeMaterial.uniforms.uBlob2.value.set(Math.cos(tNeb * 0.31 + 2.1) * 0.46 * scale, Math.sin(tNeb * 0.43 + 1.2) * 0.34 * scale);
+    kaleidoscopeMaterial.uniforms.uBlob3.value.set(Math.sin(tNeb * 0.19 + 4.2) * 0.15 * scale, Math.cos(tNeb * 0.24 + 3.1) * 0.15 * scale);
+    kaleidoscopeMaterial.uniforms.uBlob4.value.set(Math.cos(tNeb * 0.22 + 5.1) * 0.32 * scale, Math.sin(tNeb * 0.25 + 2.4) * 0.36 * scale);
+    kaleidoscopeMaterial.uniforms.uBreath.value = 0.82 + 0.18 * Math.sin(tNeb * 0.65);
 
     renderer.render(mainScene, mainCamera);
   }
