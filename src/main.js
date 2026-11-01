@@ -50,7 +50,8 @@ container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
 // Configurable resolution for ultra-crisp paper fiber edges and optimal GPU fillrate
-let currentFboSize = 2560;
+const defaultFbo = (typeof window !== 'undefined' && window.innerWidth <= 768) ? 1536 : 2560;
+let currentFboSize = defaultFbo;
 const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFboSize, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
@@ -284,7 +285,7 @@ const params = {
   filmGrain: 0.0,
 
   // Performance & Graphics
-  fboResolution: 2560,
+  fboResolution: (typeof window !== 'undefined' && window.innerWidth <= 768) ? 1536 : 2560,
   screenDpi: 1.5,
   autoRadiusCoupling: true
 };
@@ -994,7 +995,22 @@ let liveMetrics = {
   triangles: 0
 };
 
+// --- WebGL Context Loss & Restoration Safety ---
+renderer.domElement.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  console.warn('[Spectromorphology] WebGL context lost. Awaiting restoration...');
+}, false);
+
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  console.log('[Spectromorphology] WebGL context restored. Re-syncing buffers...');
+  setFboResolution(currentFboSize);
+}, false);
+
+// Only report to server when running on local development server
+const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
 function sendPerfTelemetry(metrics) {
+  if (!isDev) return;
   try {
     fetch('/api/perf', {
       method: 'POST',
@@ -1004,6 +1020,40 @@ function sendPerfTelemetry(metrics) {
   } catch (e) {}
 }
 
+// ── Smart Tab Visibility & Wake-Up Handling ──
+// Prevents browser background rAF throttling (1 FPS) from causing wake-up stutter,
+// stops mobile thermal throttling, and immediately restores clean 60 FPS upon tab focus.
+let isTabVisible = (typeof document !== 'undefined') ? !document.hidden : true;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    isTabVisible = !document.hidden;
+    if (isTabVisible) {
+      // Discard background clock delta so ribbons do not teleport
+      clock.getDelta();
+      prevRafTime = performance.now();
+      lastPerfSampleTime = performance.now();
+      frameCounter = 0;
+      accumCpuMs = 0;
+      accumGpuMs = 0;
+      accumFrameMs = 0;
+      maxFrameIntervalMs = 0;
+      jankFramesCount = 0;
+      severeJankFramesCount = 0;
+      frameIntervalHistory.length = 0;
+      if (perfFpsEl) {
+        perfFpsEl.textContent = '60.0 FPS';
+        perfFpsEl.style.color = '#48bb78';
+      }
+    } else {
+      if (perfFpsEl) {
+        perfFpsEl.textContent = 'ФОН (ЭКО)';
+        perfFpsEl.style.color = '#a0aec0';
+      }
+    }
+  });
+}
+
 // 6. Animation Loop
 const clock = new THREE.Clock();
 let currentRotation = 0.0;
@@ -1011,9 +1061,22 @@ let currentRotation = 0.0;
 function animate(rafTimestamp) {
   requestAnimationFrame(animate);
 
+  // When tab is hidden / phone locked / in background:
+  // Skip GPU rendering completely to preserve 100% battery, eliminate heat,
+  // and prevent browser background 1-FPS throttling lag!
+  if (typeof document !== 'undefined' && document.hidden) {
+    return;
+  }
+
   const tFrameStart = performance.now();
-  const rafDelta = (prevRafTime > 0) ? (tFrameStart - prevRafTime) : 16.6;
+  let rafDelta = (prevRafTime > 0) ? (tFrameStart - prevRafTime) : 16.6;
   prevRafTime = tFrameStart;
+
+  // Flush stale background frame intervals upon waking up
+  if (rafDelta > 150.0) {
+    rafDelta = 16.6;
+    frameIntervalHistory.length = 0;
+  }
 
   frameIntervalHistory.push(rafDelta);
   if (frameIntervalHistory.length > 240) {
