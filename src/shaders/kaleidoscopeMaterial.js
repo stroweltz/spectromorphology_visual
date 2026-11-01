@@ -16,6 +16,7 @@ export function createKaleidoscopeMaterial() {
       uBgOuter: { value: new THREE.Color(0x030406) }, // pitch black
       uVignette: { value: 0.75 },
       uAspect: { value: 1.0 },
+      uFilmGrain: { value: 0.0 },
       uTime: { value: 0.0 }
     },
     vertexShader: /* glsl */ `
@@ -40,6 +41,7 @@ export function createKaleidoscopeMaterial() {
       uniform vec3 uBgOuter;
       uniform float uVignette;
       uniform float uAspect;
+      uniform float uFilmGrain;
       uniform float uTime;
 
       float hash(vec2 p) {
@@ -94,9 +96,11 @@ export function createKaleidoscopeMaterial() {
         vig = smoothstep(1.1, 0.4, vig);
         finalColor *= mix(1.0, vig, uVignette);
 
-        // Subtle film grain
-        float grain = (hash(vUv + fract(uTime)) - 0.5) * 0.025;
-        finalColor += grain;
+        // Optional film grain (defaults to 0.0 for crystal-clear clarity)
+        if (uFilmGrain > 0.001) {
+          float grain = (hash(vUv + fract(uTime)) - 0.5) * 0.025 * (uFilmGrain * 0.1);
+          finalColor += grain;
+        }
 
         gl_FragColor = vec4(finalColor, 1.0);
       }

@@ -125,17 +125,20 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
           fiberFaint = smoothstep(0.6, 0.9, fiber);
         }
 
-        // 3. Mottling / Paper Pulp Density (fast 2-octave evaluation)
-        float pulpDensity = fbm2(paperCoord * 0.4);
+        // 3. Mottling / Paper Pulp Density (smoothly fades when roughness/fibers are 0)
+        float paperPulp = max(effectiveRoughness, uFiberIntensity);
         
         // 4. Color Shading (Pigment absorption + fiber darkening)
         // Uses smoothly interpolated vertex colors for organic branching gradients;
         // falls back to uniform uColor if vertex color is absent.
         vec3 col = (length(vColor) > 0.001) ? vColor : uColor;
-        // Pigment settles more in denser pulp areas
-        col = mix(col * 0.85, col * 1.15, pulpDensity);
-        // Darken micro-fibers slightly
-        col -= fiberFaint * uFiberIntensity * 0.3;
+        if (paperPulp > 0.01) {
+          float pulpDensity = fbm2(paperCoord * 0.4);
+          // Pigment settles more in denser pulp areas
+          col = mix(col, mix(col * 0.85, col * 1.15, pulpDensity), clamp(paperPulp * 2.0, 0.0, 1.0));
+          // Darken micro-fibers slightly
+          col -= fiberFaint * uFiberIntensity * 0.3;
+        }
 
         // 5. Feathered ends of stroke (start & end)
         // Leading brush head is crisp and solid; trailing end softly dissolves

@@ -246,6 +246,7 @@ const params = {
   bgInner: '#0e121d',
   bgOuter: '#040507',
   vignette: 0.75,
+  filmGrain: 0.0,
 
   // Performance & Graphics
   fboResolution: 1536
@@ -686,6 +687,9 @@ fBg.addColor(params, 'bgOuter').name('Края фона').onChange(hex => {
 });
 fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v => {
   kaleidoscopeMaterial.uniforms.uVignette.value = v;
+});
+fBg.add(params, 'filmGrain', 0.0, 10.0, 0.1).name('Зернистость плёнки (0..10)').onChange(v => {
+  kaleidoscopeMaterial.uniforms.uFilmGrain.value = v;
 });
 
 // Папка: Управление сохранением (localStorage)
