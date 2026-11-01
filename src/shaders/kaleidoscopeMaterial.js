@@ -9,7 +9,7 @@ export function createKaleidoscopeMaterial() {
       uZoom: { value: 1.0 },
       uCenter: { value: new THREE.Vector2(0.5, 0.5) },
       uSampleCenter: { value: new THREE.Vector2(0.5, 0.5) },
-      uStrokeScale: { value: 0.35 },       // maps screen space to expanded FBO UV
+      uStrokeScale: { value: 0.7 / 1.05 }, // maps screen space to tightly fitted FBO UV
       uMirror: { value: 1.0 },             // kept for GUI reads
       uBgType: { value: 1.0 },              // 0: pure black, 1: dark radial gradient
       uBgInner: { value: new THREE.Color(0x0c0f17) }, // deep midnight indigo

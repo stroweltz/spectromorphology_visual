@@ -17,14 +17,14 @@ renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accu
 container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
-// Configurable resolution for crisp paper fiber edges and optimal GPU fillrate
-let currentFboSize = 1536;
+// Configurable resolution for ultra-crisp paper fiber edges and optimal GPU fillrate
+let currentFboSize = 2560;
 const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFboSize, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
   type: THREE.UnsignedByteType,
-  samples: 4 // Hardware 4x MSAA anti-aliasing on FBO canvas
+  samples: 8 // Hardware 8x MSAA anti-aliasing on FBO canvas
 });
 
 function setFboResolution(size) {
@@ -43,12 +43,11 @@ function setFboResolution(size) {
 
 const strokeScene = new THREE.Scene();
 
-// Aspect and corner reach for screen: ensure square FBO rectangle is safely outside all screen corners
-const initAspect = width / height;
-const initRCorner = 0.5 * Math.sqrt(initAspect * initAspect + 1.0);
-const initStrokeExtent = Math.max(2.2, initRCorner * 2.0);
+// Tightly bound strokeExtent: mandala strokes live within r ≈ 0.85, so 1.05 safely captures all strokes
+// while dedicating 100% of the FBO resolution to the actual lines instead of empty black space!
+const initStrokeExtent = 1.05;
 
-// Orthographic camera covering expanded space so bounding box is completely off-screen
+// Orthographic camera covering stroke territory tightly for maximum texel density
 const strokeCamera = new THREE.OrthographicCamera(
   -initStrokeExtent, initStrokeExtent, initStrokeExtent, -initStrokeExtent, 0.1, 10
 );
@@ -61,7 +60,7 @@ const ribbons = [
   new FishRibbon({
     color: 0xef2353,
     splitColor: 0xffaa00,
-    segments: 70,
+    segments: 100,
     maxWidth: 0.08,
     widthLimit: 0.08,            // Верхний потолок толщины
     widthSpeed: 0.22,
@@ -94,7 +93,7 @@ const ribbons = [
   new FishRibbon({
     color: 0x00d2d3,
     splitColor: 0x10ac84,
-    segments: 70,
+    segments: 100,
     maxWidth: 0.075,
     widthLimit: 0.08,            // Верхний потолок толщины
     widthSpeed: 0.22,
@@ -127,7 +126,7 @@ const ribbons = [
   new FishRibbon({
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
-    segments: 70,
+    segments: 100,
     maxWidth: 0.07,
     widthLimit: 0.08,            // Верхний потолок толщины
     widthSpeed: 0.22,
@@ -250,7 +249,9 @@ const params = {
   filmGrain: 0.0,
 
   // Performance & Graphics
-  fboResolution: 1536
+  fboResolution: 2560,
+  screenDpi: 1.5,
+  autoRadiusCoupling: true
 };
 
 // ── Helper: propagate sector / mirror changes to all ribbon instances ──
@@ -495,11 +496,19 @@ fPerf.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS HUD'
   if (hudPerf) hudPerf.style.display = v ? 'inline-flex' : 'none';
 });
 fPerf.add(params, 'fboResolution', {
-  '⚡ Баланс (1536px · Быстро)': 1536,
+  '👑 4K Cinema (3840px · Максимум)': 3840,
+  '💎 Ультра Retina (2560px · Рекомендуется)': 2560,
   '🎨 Высокое (2048px · Чётко)': 2048,
-  '💎 Ультра (2560px · Макс)': 2560,
+  '⚡ Баланс (1536px · Быстро)': 1536,
   '🚀 Турбо (1024px · Легко)': 1024
 }).name('Качество холста (FBO)').onChange(v => setFboResolution(v));
+fPerf.add(params, 'screenDpi', {
+  '⚡ Стандарт (1.2x)': 1.2,
+  '🎨 Высокая чёткость (1.5x)': 1.5,
+  '💎 Ultra Retina (2.0x)': 2.0
+}).name('Разрешение экрана (DPI)').onChange(v => {
+  renderer.setPixelRatio(v);
+});
 fPerf.close();
 
 const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
@@ -543,8 +552,26 @@ fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кист
 fFish.add(params, 'boundaryRadius', 0.25, 0.70, 0.01).name('Радиус обитания').onChange(v => {
   ribbons.forEach(r => r.maxBoundaryRadius = v);
 });
-fFish.add(params, 'minTurnRadius', 0.0, 0.5, 0.01).name('Мин. радиус поворота').onChange(v => {
-  ribbons.forEach(r => r.minTurnRadius = v);
+const minTurnCtrl = fFish.add(params, 'minTurnRadius', 0.0, 0.5, 0.01).name('Мин. радиус поворота').onChange(v => {
+  let effectiveRadius = v;
+  if (params.autoRadiusCoupling) {
+    const minSafeR = (params.strokeWidthLimit * 0.008) * 0.6;
+    if (v < minSafeR) {
+      effectiveRadius = minSafeR;
+      minTurnCtrl.setValue(minSafeR);
+    }
+  }
+  ribbons.forEach(r => r.minTurnRadius = effectiveRadius);
+});
+fFish.add(params, 'autoRadiusCoupling').name('🔗 Связка R_min с шириной').onChange(v => {
+  if (v) {
+    const minSafeR = (params.strokeWidthLimit * 0.008) * 0.6;
+    if (params.minTurnRadius < minSafeR) {
+      params.minTurnRadius = minSafeR;
+      minTurnCtrl.setValue(minSafeR);
+      ribbons.forEach(r => r.minTurnRadius = minSafeR);
+    }
+  }
 });
 fFish.add(params, 'fixedPathTrail').name('📌 Фиксированный след').onChange(v => {
   ribbons.forEach(r => r.fixedPathTrail = v);
@@ -624,12 +651,28 @@ const limitCtrl = fPaper.add(params, 'strokeWidthLimit', 0.5, 15.0, 0.1)
   .name('🛑 Потолок толщины (0..10)')
   .onChange(v => {
     ribbons.forEach(r => r.setWidthLimit(v * 0.008));
+    if (params.autoRadiusCoupling) {
+      const minSafeR = (v * 0.008) * 0.6;
+      if (params.minTurnRadius < minSafeR) {
+        params.minTurnRadius = minSafeR;
+        minTurnCtrl.setValue(minSafeR);
+        ribbons.forEach(r => r.minTurnRadius = minSafeR);
+      }
+    }
   });
 
 function setGlobalWidth(val) {
   params.strokeWidthLimit = val;
   limitCtrl.setValue(val);
   ribbons.forEach(r => r.setWidthLimit(val * 0.008));
+  if (params.autoRadiusCoupling) {
+    const minSafeR = (val * 0.008) * 0.6;
+    if (params.minTurnRadius < minSafeR) {
+      params.minTurnRadius = minSafeR;
+      minTurnCtrl.setValue(minSafeR);
+      ribbons.forEach(r => r.minTurnRadius = minSafeR);
+    }
+  }
 }
 
 const fPresets = fPaper.addFolder('⚡ Пресеты толщины (0..10)');
@@ -721,9 +764,8 @@ function handleResize() {
   renderer.setSize(w, h);
   kaleidoscopeMaterial.uniforms.uAspect.value = aspect;
 
-  // Dynamically update strokeExtent and scale so FBO edges stay safely outside screen corners
-  const rCorner = 0.5 * Math.sqrt(aspect * aspect + 1.0);
-  const strokeExtent = Math.max(2.2, rCorner * 2.0);
+  // Tightly fitted strokeExtent: allocates maximum texel density to the actual mandala strokes
+  const strokeExtent = 1.05;
 
   strokeCamera.left = -strokeExtent;
   strokeCamera.right = strokeExtent;
