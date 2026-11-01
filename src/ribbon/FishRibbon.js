@@ -95,6 +95,10 @@ export class FishRibbon {
     this.splitWidths = new Float32Array(this.segments);
     this._splitNewWidths = new Float32Array(this.segments);
 
+    // Pre-allocated typed arrays for lateral offsets (eliminates GC stutter)
+    this._lateralOffsetsA = new Float32Array(this.segments);
+    this._lateralOffsetsB = new Float32Array(this.segments);
+
     // ── Minimum turning radius constraint ──
     // Prevents the head from making sharp U-turns that create visual noise.
     // Governs max angular velocity: |ω_max| = v / minTurnRadius.
@@ -279,6 +283,16 @@ export class FishRibbon {
     const uvs = new Float32Array(vertexCount * 2);
     const indices = [];
 
+    // Pre-calculate UV coordinates once (they are constant throughout runtime)
+    for (let i = 0; i < segments; i++) {
+      const s = i / (segments - 1);
+      const vIdx = i * 2;
+      uvs[vIdx * 2 + 0] = s;
+      uvs[vIdx * 2 + 1] = 1.0;
+      uvs[(vIdx + 1) * 2 + 0] = s;
+      uvs[(vIdx + 1) * 2 + 1] = -1.0;
+    }
+
     for (let i = 0; i < segments - 1; i++) {
       const p1 = i * 2;
       const p2 = i * 2 + 1;
@@ -290,7 +304,7 @@ export class FishRibbon {
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
-    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2).setUsage(THREE.StaticDrawUsage));
     geom.setIndex(indices);
     return geom;
   }
@@ -831,8 +845,6 @@ export class FishRibbon {
     // ── 5. Lateral Offsets ──
     // When fixedPathTrail is active, the spatial sinusoid is already baked into headA/headB and the history buffer.
     // Thus lateralOffsets is strictly 0.0, guaranteeing that already-drawn points never wobble or swim in time.
-    const lateralOffsetsA = [];
-    const lateralOffsetsB = [];
     if (!this.fixedPathTrail && this.waveAmp > 0.0001) {
       const waveSpeed = v * 11.0 + 0.6;
       this.wavePhase += waveSpeed * clampedDelta;
@@ -840,26 +852,24 @@ export class FishRibbon {
       for (let i = 0; i < this.segments; i++) {
         const s = i / (this.segments - 1);
         const amp = this.waveAmp * speedFactor * Math.sin(Math.pow(s, 0.85) * Math.PI * 0.5) * (1.0 - 0.22 * s);
-        lateralOffsetsA.push(amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - this.wavePhase));
-        lateralOffsetsB.push(amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - (this.wavePhase + 0.35)));
+        this._lateralOffsetsA[i] = amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - this.wavePhase);
+        this._lateralOffsetsB[i] = amp * Math.sin(this.waveFreq * s * Math.PI * 2.0 - (this.wavePhase + 0.35));
       }
     } else {
-      // 100% frozen: points stay stationary on the canvas
-      for (let i = 0; i < this.segments; i++) {
-        lateralOffsetsA.push(0.0);
-        lateralOffsetsB.push(0.0);
-      }
+      // 100% frozen: points stay stationary on the canvas (pre-zeroed typed arrays, 0 allocations)
+      this._lateralOffsetsA.fill(0.0);
+      this._lateralOffsetsB.fill(0.0);
     }
 
     // ── 6. Update Main Ribbon Mesh Vertices ──
-    this._updateMeshGeometry(this.geometry, this.spine, lateralOffsetsA, this.widths, this._centerline);
+    this._updateMeshGeometry(this.geometry, this.spine, this._lateralOffsetsA, this.widths, this._centerline);
 
     // ── 7. Update Split Branch Ribbon Mesh Vertices ──
     if (this.splitProgress > 0.001) {
       this.splitMesh.visible = true;
       this.splitMesh.count = this.mesh.count;
       this.splitMaterial.uniforms.uOpacity.value = THREE.MathUtils.clamp(this.splitProgress * 1.5, 0.0, 0.95);
-      this._updateMeshGeometry(this.splitGeometry, this.splitSpine, lateralOffsetsB, this.splitWidths, this._splitCenterline);
+      this._updateMeshGeometry(this.splitGeometry, this.splitSpine, this._lateralOffsetsB, this.splitWidths, this._splitCenterline);
     } else {
       this.splitMesh.visible = false;
     }
@@ -867,9 +877,7 @@ export class FishRibbon {
 
   _updateMeshGeometry(geometry, spine, lateralOffsets, widthsBuffer, centerline) {
     const posAttr = geometry.attributes.position;
-    const uvAttr = geometry.attributes.uv;
     const positions = posAttr.array;
-    const uvs = uvAttr.array;
     const segs = this.segments;
 
     // Pass 1: Compute continuous undulating centerline positions
@@ -952,16 +960,8 @@ export class FishRibbon {
       positions[(vIdx + 1) * 3 + 0] = this._tmpRight.x;
       positions[(vIdx + 1) * 3 + 1] = this._tmpRight.y;
       positions[(vIdx + 1) * 3 + 2] = 0.0;
-
-      // Write UVs: u along stroke, v across (-1.0 to 1.0)
-      uvs[vIdx * 2 + 0] = s;
-      uvs[vIdx * 2 + 1] = 1.0;
-
-      uvs[(vIdx + 1) * 2 + 0] = s;
-      uvs[(vIdx + 1) * 2 + 1] = -1.0;
     }
 
     posAttr.needsUpdate = true;
-    uvAttr.needsUpdate = true;
   }
 }

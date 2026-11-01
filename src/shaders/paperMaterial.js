@@ -61,6 +61,7 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
 
+      // 4-octave FBM for detailed deckled edge contour
       float fbm(vec2 p) {
         float v = 0.0;
         float a = 0.5;
@@ -72,6 +73,11 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         return v;
       }
 
+      // Fast 2-octave FBM for smooth paper pulp mottling (saves 8 hashes per fragment)
+      float fbm2(vec2 p) {
+        return 0.65 * noise(p) + 0.35 * noise(p * 2.08);
+      }
+
       void main() {
         // vUv.x: along stroke (0.0 to 1.0)
         // vUv.y: across stroke (0.0 at center, -1.0 to 1.0 at edges)
@@ -79,24 +85,34 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
         float v = vUv.y;
         float distFromCenter = abs(v);
 
+        // Fast early rejection for fragments completely outside the stroke boundary
+        if (distFromCenter > 1.15 || u < 0.0005 || u > 0.998) discard;
+
         // 1. Deckled / Torn Paper Edge
-        // Displace the edge with high-frequency noise anchored to the paper sheet (world space)
-        // so the fibrous grain does not crawl or drift as the brush draws forward.
+        // Solid core optimization: for the inner ~68% of the brush width, edgeProfile is
+        // guaranteed to be well inside the solid boundary, so we skip the 4-octave fbm entirely!
+        float alphaEdge = 1.0;
+        float edgeCutThreshold = 0.82 - 0.5 * uRoughness;
+
         vec2 paperCoord = vPosition.xy * 24.0;
-        float edgeNoise = fbm(paperCoord) * uRoughness;
-        float edgeProfile = distFromCenter + (edgeNoise - 0.5 * uRoughness);
-        
-        // Crisp falloff like fibrous torn paper
-        float alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
-        if (alphaEdge <= 0.005) discard;
+
+        if (distFromCenter >= edgeCutThreshold && uRoughness > 0.01) {
+          float edgeNoise = fbm(paperCoord) * uRoughness;
+          float edgeProfile = distFromCenter + (edgeNoise - 0.5 * uRoughness);
+          alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
+          if (alphaEdge <= 0.005) discard;
+        }
 
         // 2. Paper Fibers (anisotropic grain anchored to the sheet)
-        vec2 fiberCoord = vec2(paperCoord.x * 2.0, paperCoord.y * 6.0);
-        float fiber = noise(fiberCoord);
-        float fiberFaint = smoothstep(0.6, 0.9, fiber);
+        float fiberFaint = 0.0;
+        if (uFiberIntensity > 0.01) {
+          vec2 fiberCoord = vec2(paperCoord.x * 2.0, paperCoord.y * 6.0);
+          float fiber = noise(fiberCoord);
+          fiberFaint = smoothstep(0.6, 0.9, fiber);
+        }
 
-        // 3. Mottling / Paper Pulp Density
-        float pulpDensity = fbm(paperCoord * 0.4);
+        // 3. Mottling / Paper Pulp Density (fast 2-octave evaluation)
+        float pulpDensity = fbm2(paperCoord * 0.4);
         
         // 4. Color Shading (Pigment absorption + fiber darkening)
         vec3 col = uColor;

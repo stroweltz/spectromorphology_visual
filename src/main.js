@@ -17,14 +17,28 @@ renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accu
 container.appendChild(renderer.domElement);
 
 // 2. Offscreen Stroke Scene & FBO
-// Higher resolution for sharp paper fiber edges and deckled cuts
-const FBO_SIZE = 2560;
-const strokeRenderTarget = new THREE.WebGLRenderTarget(FBO_SIZE, FBO_SIZE, {
+// Configurable resolution for crisp paper fiber edges and optimal GPU fillrate
+let currentFboSize = 1536;
+const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFboSize, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
   type: THREE.UnsignedByteType
 });
+
+function setFboResolution(size) {
+  const numSize = parseInt(size, 10);
+  if (!numSize || numSize === currentFboSize) return;
+  currentFboSize = numSize;
+  params.fboResolution = numSize;
+  strokeRenderTarget.setSize(numSize, numSize);
+  if (!params.persistentCanvas) {
+    renderer.setRenderTarget(strokeRenderTarget);
+    renderer.setClearColor(0x000000, 0.0);
+    renderer.clear();
+    renderer.setRenderTarget(null);
+  }
+}
 
 const strokeScene = new THREE.Scene();
 
@@ -230,7 +244,10 @@ const params = {
   bgGradient: true,
   bgInner: '#0e121d',
   bgOuter: '#040507',
-  vignette: 0.75
+  vignette: 0.75,
+
+  // Performance & Graphics
+  fboResolution: 1536
 };
 
 // ── Helper: propagate sector / mirror changes to all ribbon instances ──
@@ -469,10 +486,18 @@ gui.add({
   }
 }, 'rerollAll').name('🎲 Случайный ансамбль (всё)');
 
+const fPerf = gui.addFolder('🚀 Производительность и Графика');
 const perfParams = { showTelemetry: true };
-gui.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS').onChange(v => {
+fPerf.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS HUD').onChange(v => {
   if (hudPerf) hudPerf.style.display = v ? 'inline-flex' : 'none';
 });
+fPerf.add(params, 'fboResolution', {
+  '⚡ Баланс (1536px · Быстро)': 1536,
+  '🎨 Высокое (2048px · Чётко)': 2048,
+  '💎 Ультра (2560px · Макс)': 2560,
+  '🚀 Турбо (1024px · Легко)': 1024
+}).name('Качество холста (FBO)').onChange(v => setFboResolution(v));
+fPerf.close();
 
 const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
 const layerParams = {
@@ -716,6 +741,7 @@ const perfFrameTimeEl = document.getElementById('perf-frametime');
 const perfCpuEl = document.getElementById('perf-cpu');
 const perfGpuEl = document.getElementById('perf-gpu');
 const perfDrawsEl = document.getElementById('perf-draws');
+const perfFboEl = document.getElementById('perf-fbo');
 
 let lastPerfSampleTime = performance.now();
 let lastPostTime = performance.now();
@@ -849,6 +875,7 @@ function animate(rafTimestamp) {
     if (perfCpuEl) perfCpuEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms`;
     if (perfGpuEl) perfGpuEl.textContent = `GPU: ${avgGpu.toFixed(1)}ms`;
     if (perfDrawsEl) perfDrawsEl.textContent = `${calls} calls · ${(triangles / 1000).toFixed(1)}k tris`;
+    if (perfFboEl) perfFboEl.textContent = `${currentFboSize}px`;
 
     frameCounter = 0;
     accumCpuMs = 0;
@@ -864,7 +891,7 @@ function animate(rafTimestamp) {
     sendPerfTelemetry({
       ...liveMetrics,
       timestamp: Date.now(),
-      fboSize: FBO_SIZE,
+      fboSize: currentFboSize,
       screen: `${window.innerWidth}x${window.innerHeight}`,
       pixelRatio: window.devicePixelRatio,
       sectors: params.sectors,
