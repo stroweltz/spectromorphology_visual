@@ -11,6 +11,27 @@ export default defineConfig({
     {
       name: 'perf-logger',
       configureServer(server) {
+        server.middlewares.use('/api/error', (req, res) => {
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+              try {
+                const data = JSON.parse(body);
+                const logLine = `[BROWSER ERROR ${new Date().toLocaleTimeString()}] ${data.msg}\nStack: ${data.stack || 'none'}\nAt: ${data.url}:${data.line}:${data.col}\n`;
+                fs.appendFileSync(path.resolve('.browser_errors.log'), logLine, 'utf-8');
+                console.error(logLine);
+              } catch (e) {}
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'text/plain');
+              res.end('ok');
+            });
+            return;
+          }
+          res.statusCode = 404;
+          res.end();
+        });
+
         server.middlewares.use('/api/perf', (req, res) => {
           if (req.method === 'POST') {
             let body = '';

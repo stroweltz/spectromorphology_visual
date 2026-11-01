@@ -69,6 +69,26 @@
     ✅ Параметры успешно сохранены в localStorage
   </div>
   <div id="canvas-container"></div>
+  <script>
+    window.onerror = function(msg, url, line, col, error) {
+      try {
+        fetch('/api/error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ msg: String(msg), url, line, col, stack: error ? error.stack : '' })
+        }).catch(function() {});
+      } catch(e) {}
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+      try {
+        fetch('/api/error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ msg: 'Unhandled rejection: ' + (event.reason ? (event.reason.message || event.reason) : 'unknown'), stack: event.reason ? event.reason.stack : '' })
+        }).catch(function() {});
+      } catch(e) {}
+    });
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

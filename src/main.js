@@ -24,7 +24,7 @@ const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFb
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
   type: THREE.UnsignedByteType,
-  samples: 8 // Hardware 8x MSAA anti-aliasing on FBO canvas
+  samples: 4 // Hardware 4x MSAA anti-aliasing on FBO canvas
 });
 
 function setFboResolution(size) {
@@ -42,6 +42,9 @@ function setFboResolution(size) {
 }
 
 const strokeScene = new THREE.Scene();
+
+// Aspect ratio for screen & debug camera
+const initAspect = width / height;
 
 // Tightly bound strokeExtent: mandala strokes live within r ≈ 0.85, so 1.05 safely captures all strokes
 // while dedicating 100% of the FBO resolution to the actual lines instead of empty black space!
@@ -399,7 +402,11 @@ function loadSavedSettings(silent = false) {
       if (typeof ctrl.getValue() === 'function') return;
 
       if (data.params && prop in data.params) {
-        ctrl.setValue(data.params[prop]);
+        if (prop === 'fboResolution' && data.params[prop] < 2048) {
+          ctrl.setValue(2560);
+        } else {
+          ctrl.setValue(data.params[prop]);
+        }
       } else if (data.layerParams && prop in data.layerParams) {
         ctrl.setValue(data.layerParams[prop]);
       } else if (data.perfParams && prop in data.perfParams) {
