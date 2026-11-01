@@ -318,6 +318,117 @@ function rerollBrushWidths() {
 
 const gui = new GUI({ title: 'Параметры Визуализатора' });
 
+// ── Mobile Drawer Integration (Slide-out panel for <= 768px) ──
+const mobileHeader = document.createElement('div');
+mobileHeader.className = 'gui-mobile-header';
+mobileHeader.innerHTML = `
+  <div class="gui-mobile-header-title">
+    <span class="gui-mobile-header-icon" aria-hidden="true">⚙️</span>
+    <span>Параметры</span>
+  </div>
+  <button id="gui-close-btn" class="gui-mobile-close-btn" type="button" aria-label="Закрыть меню">
+    <span>✕ Закрыть</span>
+  </button>
+`;
+gui.domElement.prepend(mobileHeader);
+
+const toggleBtn = document.getElementById('gui-toggle-btn');
+const backdrop = document.getElementById('gui-backdrop');
+const closeBtn = document.getElementById('gui-close-btn');
+
+function openMobileDrawer() {
+  document.body.classList.add('gui-drawer-open');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMobileDrawer() {
+  document.body.classList.remove('gui-drawer-open');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+}
+
+if (toggleBtn) {
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.body.classList.contains('gui-drawer-open')) {
+      closeMobileDrawer();
+    } else {
+      openMobileDrawer();
+    }
+  });
+}
+
+if (backdrop) {
+  backdrop.addEventListener('click', closeMobileDrawer);
+  backdrop.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    closeMobileDrawer();
+  }, { passive: false });
+}
+
+if (closeBtn) {
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeMobileDrawer();
+  });
+}
+
+// Swipe right to close gesture on mobile drawer
+let touchStartX = -1;
+let touchStartY = -1;
+let touchDeltaX = 0;
+let touchDeltaY = 0;
+
+gui.domElement.addEventListener('touchstart', (e) => {
+  // Ignore gestures on interactive inputs/sliders
+  if (e.target.closest('.lil-slider, input, select, button, .lil-display')) {
+    touchStartX = -1;
+    return;
+  }
+  if (e.touches.length === 1) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchDeltaX = 0;
+    touchDeltaY = 0;
+  }
+}, { passive: true });
+
+gui.domElement.addEventListener('touchmove', (e) => {
+  if (touchStartX < 0) return;
+  if (e.touches.length === 1) {
+    touchDeltaX = e.touches[0].clientX - touchStartX;
+    touchDeltaY = e.touches[0].clientY - touchStartY;
+  }
+}, { passive: true });
+
+gui.domElement.addEventListener('touchend', () => {
+  if (touchStartX >= 0 && touchDeltaX > 50 && Math.abs(touchDeltaX) > Math.abs(touchDeltaY) * 1.4) {
+    closeMobileDrawer();
+  }
+  touchStartX = -1;
+  touchStartY = -1;
+  touchDeltaX = 0;
+  touchDeltaY = 0;
+}, { passive: true });
+
+// Close on Escape key
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('gui-drawer-open')) {
+    closeMobileDrawer();
+  }
+});
+
+// Close drawer if window is resized above 768px
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 768 && document.body.classList.contains('gui-drawer-open')) {
+    closeMobileDrawer();
+  }
+});
+
+// Auto-open on launch if requested via URL query (?openMenu)
+if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has('openMenu')) {
+  openMobileDrawer();
+}
+
 // ── LocalStorage Settings Persistence ───────────────────
 const STORAGE_KEY = 'spectromorphology_user_settings_v1';
 
@@ -970,7 +1081,10 @@ function animate(rafTimestamp) {
       perfFpsEl.style.color = avgFps >= 55 ? '#48bb78' : (avgFps >= 35 ? '#ecc94b' : '#f56565');
     }
     if (perfFrameTimeEl) {
-      perfFrameTimeEl.textContent = `${avgFrameTime.toFixed(1)}ms (p95: ${p95.toFixed(0)}ms, max: ${maxInterval.toFixed(0)}ms)`;
+      const isNarrow = window.innerWidth <= 600;
+      perfFrameTimeEl.textContent = isNarrow
+        ? `${avgFrameTime.toFixed(1)}ms`
+        : `${avgFrameTime.toFixed(1)}ms (p95: ${p95.toFixed(0)}ms, max: ${maxInterval.toFixed(0)}ms)`;
     }
     if (perfCpuEl) perfCpuEl.textContent = `CPU: ${avgCpu.toFixed(1)}ms`;
     if (perfGpuEl) perfGpuEl.textContent = `GPU: ${avgGpu.toFixed(1)}ms`;

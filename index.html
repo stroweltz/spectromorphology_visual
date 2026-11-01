@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Spectromorphology — Калейдоскопический бумажный визуализатор</title>
   <style>
     * {
@@ -16,12 +16,17 @@
       overflow: hidden;
       background-color: #050608;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
     #canvas-container {
       width: 100vw;
       height: 100vh;
       display: block;
+      touch-action: none;
     }
+
+    /* --- HUD & Telemetry Base --- */
     #hud {
       position: absolute;
       top: 20px;
@@ -31,6 +36,7 @@
       z-index: 10;
       font-size: 13px;
       letter-spacing: 0.05em;
+      max-width: calc(100vw - 48px);
     }
     #hud h1 {
       font-size: 16px;
@@ -39,36 +45,532 @@
       margin-bottom: 4px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
     }
-    #hud p {
+    #hud-subtitle {
       font-size: 12px;
       color: rgba(255, 255, 255, 0.5);
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    }
+    #hud-debug {
+      display: none;
+      margin-top: 6px;
+      padding: 3px 8px;
+      background: rgba(255, 238, 68, 0.15);
+      border: 1px solid rgba(255, 238, 68, 0.35);
+      border-radius: 4px;
+      color: #ffee44;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .hud-perf {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      color: #a0aec0;
+      background: rgba(10, 15, 25, 0.65);
+      padding: 5px 9px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      white-space: nowrap;
+    }
+    .perf-val-fps {
+      font-weight: 700;
+      color: #48bb78;
+    }
+    .perf-val-fbo {
+      color: #90cdf4;
+    }
+    .perf-divider {
+      color: rgba(255, 255, 255, 0.2);
+    }
+
+    #hud-toast {
+      display: none;
+      position: fixed;
+      bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid rgba(72, 187, 120, 0.55);
+      color: #48bb78;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(72, 187, 120, 0.2);
+      z-index: 1200;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      white-space: nowrap;
+      max-width: 90vw;
+      text-align: center;
+    }
+
+    /* --- Mobile Floating Glassmorphism Trigger Button --- */
+    .gui-toggle-btn {
+      display: none; /* hidden on desktop (> 768px) */
+      position: fixed;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      right: calc(16px + env(safe-area-inset-right, 0px));
+      z-index: 990;
+      padding: 10px 18px;
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 9999px;
+      color: #f8fafc;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 15px rgba(99, 179, 237, 0.2);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                  background 0.2s ease,
+                  border-color 0.2s ease,
+                  box-shadow 0.2s ease,
+                  opacity 0.25s ease;
+    }
+    .gui-toggle-btn:hover {
+      background: rgba(30, 41, 59, 0.88);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 179, 237, 0.3);
+    }
+    .gui-toggle-btn:active {
+      transform: scale(0.93);
+      background: rgba(30, 41, 59, 0.95);
+      border-color: rgba(72, 187, 120, 0.6);
+    }
+    .gui-toggle-btn .gui-toggle-icon {
+      font-size: 16px;
+      line-height: 1;
+      display: inline-block;
+      transition: transform 0.35s ease;
+    }
+    .gui-toggle-btn:hover .gui-toggle-icon {
+      transform: rotate(45deg);
+    }
+
+    /* --- Mobile Drawer Backdrop --- */
+    .gui-backdrop {
+      display: none; /* hidden on desktop (> 768px) */
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(5, 8, 15, 0.68);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      z-index: 1050;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* --- Mobile Drawer Header --- */
+    .gui-mobile-header {
+      display: none; /* hidden on desktop (> 768px) */
+    }
+
+    /* =========================================================================
+       Mobile & Tablet Responsive Adaptations (<= 768px)
+       ========================================================================= */
+    @media (max-width: 768px) {
+      /* Show Mobile Trigger & Backdrop */
+      .gui-toggle-btn {
+        display: inline-flex;
+      }
+      .gui-backdrop {
+        display: block;
+      }
+      body.gui-drawer-open .gui-backdrop {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      body.gui-drawer-open .gui-toggle-btn {
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.85);
+      }
+
+      /* Compact HUD & Telemetry */
+      #hud {
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        left: calc(12px + env(safe-area-inset-left, 0px));
+        max-width: calc(100vw - 24px);
+      }
+      #hud h1 {
+        font-size: 13.5px;
+        letter-spacing: 0.08em;
+        margin-bottom: 2px;
+      }
+      #hud-subtitle {
+        font-size: 11px;
+        opacity: 0.85;
+      }
+      .hud-perf {
+        margin-top: 6px;
+        font-size: 10px;
+        padding: 4px 7px;
+        gap: 6px;
+        border-radius: 5px;
+        background: rgba(10, 15, 25, 0.75);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+      .perf-hide-md {
+        display: none !important;
+      }
+
+      /* Mobile Drawer (Slide-out lil-gui Panel) */
+      .lil-gui.lil-root,
+      .lil-gui.lil-root.lil-auto-place,
+      .lil-gui.lil-root.autoPlace {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        width: min(360px, 86vw) !important;
+        max-width: 100vw !important;
+        z-index: 1100 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        transform: translateX(105%) !important;
+        transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease !important;
+        box-shadow: none !important;
+        background: rgba(14, 18, 28, 0.94) !important;
+        backdrop-filter: blur(24px) saturate(190%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-top: none !important;
+        border-right: none !important;
+        border-bottom: none !important;
+        border-radius: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+      }
+
+      body.gui-drawer-open .lil-gui.lil-root,
+      body.gui-drawer-open .lil-gui.lil-root.lil-auto-place,
+      body.gui-drawer-open .lil-gui.lil-root.autoPlace {
+        transform: translateX(0) !important;
+        box-shadow: -15px 0 45px rgba(0, 0, 0, 0.7) !important;
+      }
+
+      /* Hide Default Root Title on Mobile (Replaced by Custom Header) */
+      .lil-gui.lil-root > .lil-title {
+        display: none !important;
+      }
+
+      /* Mobile Drawer Header with Close Button */
+      .gui-mobile-header {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 14px 18px;
+        background: rgba(10, 14, 24, 0.98);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        flex-shrink: 0;
+        z-index: 2;
+      }
+      .gui-mobile-header-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        letter-spacing: 0.02em;
+      }
+      .gui-mobile-close-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.09);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        color: #f1f5f9;
+        padding: 8px 14px;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        min-height: 40px;
+        min-width: 44px;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+      }
+      .gui-mobile-close-btn:active {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.35);
+        transform: scale(0.95);
+      }
+
+      /* Scrollable Container with Smooth Scrolling and Safe Area */
+      .lil-gui.lil-root > .lil-children {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+        padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+        padding-left: 2px !important;
+        padding-right: 2px !important;
+      }
+      .lil-gui.lil-root > .lil-children::-webkit-scrollbar {
+        width: 6px;
+      }
+      .lil-gui.lil-root > .lil-children::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .lil-gui.lil-root > .lil-children::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+
+      /* lil-gui Mobile Variables for Touch Targets */
+      .lil-gui {
+        --widget-height: 38px !important;
+        --spacing: 6px !important;
+        --padding: 8px !important;
+        --font-size: 13.5px !important;
+        --input-font-size: 16px !important; /* iOS Safari zoom prevention */
+        --checkbox-size: 24px !important;
+        --widget-border-radius: 6px !important;
+        --slider-knob-width: 3px !important;
+      }
+
+      /* Folder Headers */
+      .lil-gui .lil-title {
+        height: auto !important;
+        min-height: 44px !important;
+        display: flex !important;
+        align-items: center !important;
+        font-size: 13.5px !important;
+        font-weight: 600 !important;
+        padding: 0 12px !important;
+        color: #e2e8f0 !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+        touch-action: manipulation;
+      }
+      .lil-gui .lil-title:active {
+        background: rgba(255, 255, 255, 0.08) !important;
+      }
+
+      /* Controllers / Rows (min-height >= 44px for Touch Targets) */
+      .lil-controller {
+        min-height: 44px !important;
+        margin: 6px 0 !important;
+        padding: 0 10px !important;
+      }
+
+      .lil-controller > .lil-name {
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        min-width: 42% !important;
+        max-width: 50% !important;
+        padding-right: 8px !important;
+        color: #cbd5e1 !important;
+      }
+
+      .lil-controller .lil-widget {
+        min-height: 38px !important;
+        display: flex !important;
+        align-items: center !important;
+      }
+
+      /* Sliders */
+      .lil-controller.lil-number .lil-slider {
+        height: 38px !important;
+        background: rgba(45, 55, 75, 0.6) !important;
+        border-radius: 6px !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        touch-action: pan-y !important;
+      }
+      .lil-controller.lil-number .lil-slider.lil-active {
+        border-color: rgba(72, 187, 120, 0.5) !important;
+        background: rgba(45, 55, 75, 0.85) !important;
+      }
+      .lil-controller.lil-number .lil-fill {
+        border-right-width: 3px !important;
+        background: rgba(72, 187, 120, 0.3) !important;
+        border-right-color: #48bb78 !important;
+      }
+
+      /* Text and Number Inputs (font-size: 16px strictly prevents iOS Safari viewport auto-zoom) */
+      .lil-gui input[type="text"],
+      .lil-gui input[type="number"] {
+        height: 38px !important;
+        font-size: 16px !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+        background: rgba(25, 32, 48, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 6px !important;
+        color: #f1f5f9 !important;
+        text-align: center !important;
+        padding: 0 4px !important;
+      }
+      .lil-gui input[type="text"]:focus,
+      .lil-gui input[type="number"]:focus {
+        border-color: #48bb78 !important;
+        box-shadow: 0 0 0 2px rgba(72, 187, 120, 0.25) !important;
+      }
+
+      /* Checkboxes */
+      .lil-controller.lil-boolean {
+        cursor: pointer;
+      }
+      .lil-gui input[type="checkbox"] {
+        width: 26px !important;
+        height: 26px !important;
+        min-width: 26px !important;
+        min-height: 26px !important;
+        border-radius: 6px !important;
+        background: rgba(45, 55, 75, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        cursor: pointer !important;
+      }
+      .lil-gui input[type="checkbox"]:checked {
+        background: #38a169 !important;
+        border-color: #48bb78 !important;
+      }
+
+      /* Select / Options */
+      .lil-controller.lil-option select {
+        font-size: 16px !important;
+        height: 38px !important;
+      }
+      .lil-controller.lil-option .lil-display {
+        height: 38px !important;
+        line-height: 38px !important;
+        font-size: 13.5px !important;
+        border-radius: 6px !important;
+        background: rgba(45, 55, 75, 0.65) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #f1f5f9 !important;
+      }
+
+      /* Action Buttons */
+      .lil-gui .lil-controller button {
+        height: 42px !important;
+        min-height: 42px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        border-radius: 7px !important;
+        background: rgba(45, 58, 82, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #f8fafc !important;
+        letter-spacing: 0.02em !important;
+        touch-action: manipulation !important;
+        transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease !important;
+      }
+      .lil-gui .lil-controller button:active {
+        background: rgba(65, 84, 120, 0.95) !important;
+        border-color: rgba(72, 187, 120, 0.5) !important;
+        transform: scale(0.98) !important;
+      }
+
+      /* Color Swatches */
+      .lil-controller.lil-color .lil-display {
+        height: 38px !important;
+        border-radius: 6px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      }
+    }
+
+    /* =========================================================================
+       Ultra-narrow Mobile (<= 520px)
+       ========================================================================= */
+    @media (max-width: 520px) {
+      #hud {
+        top: calc(10px + env(safe-area-inset-top, 0px));
+        left: calc(10px + env(safe-area-inset-left, 0px));
+      }
+      #hud h1 {
+        font-size: 12.5px;
+        letter-spacing: 0.06em;
+      }
+      #hud-subtitle {
+        font-size: 10px;
+        max-width: 220px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .perf-hide-sm {
+        display: none !important;
+      }
+      .hud-perf {
+        font-size: 10px;
+        padding: 3px 6px;
+        gap: 5px;
+      }
     }
   </style>
 </head>
 <body>
+  <!-- HUD: Title, Description, Status and Live Telemetry -->
   <div id="hud">
     <h1>Spectromorphology</h1>
     <p id="hud-subtitle">Мандала бумажных мазков · Рыбья кинематика</p>
-    <div id="hud-debug" style="display: none; margin-top: 6px; padding: 3px 8px; background: rgba(255, 238, 68, 0.15); border: 1px solid rgba(255, 238, 68, 0.35); border-radius: 4px; color: #ffee44; font-size: 11px; font-weight: 600; letter-spacing: 0.08em;">
+    <div id="hud-debug">
       🖌 РЕЖИМ КИСТИ (DEBUG): ОДИНАРНАЯ ТРАЕКТОРИЯ И ОСИ СИММЕТРИИ
     </div>
-    <div id="hud-perf" style="margin-top: 8px; font-family: monospace; font-size: 11px; color: #a0aec0; background: rgba(10, 15, 25, 0.65); padding: 5px 9px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.08); display: inline-flex; align-items: center; gap: 8px;">
-      <span id="perf-fps" style="font-weight: 700; color: #48bb78;">-- FPS</span>
-      <span style="color: rgba(255,255,255,0.2);">|</span>
+    <div id="hud-perf" class="hud-perf">
+      <span id="perf-fps" class="perf-val-fps">-- FPS</span>
+      <span class="perf-divider">|</span>
       <span id="perf-frametime">-- ms</span>
-      <span style="color: rgba(255,255,255,0.2);">|</span>
-      <span id="perf-cpu">CPU: -- ms</span>
-      <span style="color: rgba(255,255,255,0.2);">|</span>
-      <span id="perf-draws">-- calls · -- tris</span>
-      <span style="color: rgba(255,255,255,0.2);">|</span>
-      <span id="perf-fbo" style="color: #90cdf4;">1536px</span>
+      <span class="perf-divider perf-hide-sm">|</span>
+      <span id="perf-cpu" class="perf-hide-sm">CPU: -- ms</span>
+      <span class="perf-divider perf-hide-md">|</span>
+      <span id="perf-draws" class="perf-hide-md">-- calls · -- tris</span>
+      <span class="perf-divider perf-hide-md">|</span>
+      <span id="perf-fbo" class="perf-hide-md perf-val-fbo">1536px</span>
     </div>
   </div>
-  <div id="hud-toast" style="display: none; position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.94); border: 1px solid rgba(72, 187, 120, 0.55); color: #48bb78; padding: 10px 22px; border-radius: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(72, 187, 120, 0.2); z-index: 1000; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease;">
+
+  <!-- Notification Toast (Settings Saved / Restored) -->
+  <div id="hud-toast">
     ✅ Параметры успешно сохранены в localStorage
   </div>
+
+  <!-- Floating Glassmorphism Trigger Button (Mobile <= 768px) -->
+  <button id="gui-toggle-btn" class="gui-toggle-btn" type="button" aria-label="Открыть параметры визуализатора" aria-expanded="false">
+    <span class="gui-toggle-icon" aria-hidden="true">⚙️</span>
+    <span class="gui-toggle-label">Параметры</span>
+  </button>
+
+  <!-- Mobile Drawer Backdrop Overlay -->
+  <div id="gui-backdrop" class="gui-backdrop" aria-hidden="true"></div>
+
+  <!-- WebGL Canvas Container -->
   <div id="canvas-container"></div>
+
   <script>
     window.onerror = function(msg, url, line, col, error) {
       try {
