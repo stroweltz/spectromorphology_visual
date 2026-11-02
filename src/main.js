@@ -45,7 +45,26 @@ const height = window.innerHeight;
 // 1. Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(width, height);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// Detect software emulator (Microsoft Basic Render Driver, WARP, SwiftShader, llvmpipe)
+function checkIsSoftwareRenderer(gl) {
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const unmasked = ext ? (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '') : '';
+    const std = gl.getParameter(gl.RENDERER) || '';
+    const full = (unmasked + ' ' + std).toLowerCase();
+    return full.includes('basic render driver') ||
+           full.includes('swiftshader') ||
+           full.includes('llvmpipe') ||
+           full.includes('software') ||
+           full.includes('warp');
+  } catch (e) {
+    return false;
+  }
+}
+
+const isSoftwareRenderer = checkIsSoftwareRenderer(renderer.getContext());
+renderer.setPixelRatio(isSoftwareRenderer ? 1.0 : Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -55,14 +74,14 @@ container.appendChild(renderer.domElement);
 // 2. Offscreen Stroke Scene & FBO
 // Configurable resolution for ultra-crisp paper fiber edges and optimal GPU fillrate
 const isMobileOrIntegrated = (typeof window !== 'undefined' && (window.innerWidth <= 1024 || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)));
-const defaultFbo = isMobileOrIntegrated ? 1536 : 1920;
+const defaultFbo = isSoftwareRenderer ? 512 : (isMobileOrIntegrated ? 1536 : 1920);
 let currentFboSize = defaultFbo;
 const strokeRenderTarget = new THREE.WebGLRenderTarget(currentFboSize, currentFboSize, {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
   format: THREE.RGBAFormat,
   type: THREE.UnsignedByteType,
-  samples: 1 // 1x sample: Zero MSAA resolve overhead; paper shader has analytical AA!
+  samples: 0 // 0 = disabled MSAA; paper shader has analytical AA!
 });
 
 function setFboResolution(size) {
@@ -361,8 +380,8 @@ const params = {
 
   // Paper Texture & Width Dynamics (Человеческая шкала 0..10)
   strokeWidthLimit: 4.0,       // Потолок толщины [0..10] (10.0 = полная кисть 0.080)
-  roughness: 3.5,               // Рваный край [0..10] (3.5 = 0.35)
-  fiberIntensity: 3.5,          // Волокна бумаги [0..10] (3.5 = 0.28)
+  roughness: isSoftwareRenderer ? 0.0 : 3.5,     // Рваный край [0..10] (3.5 = 0.35)
+  fiberIntensity: isSoftwareRenderer ? 0.0 : 3.5, // Волокна бумаги [0..10] (3.5 = 0.28)
   edgeBorder: 6.5,              // Кайма кромки / четкость перекрытий [0..10] (6.5 = 0.65)
   ribbonVolume: 5.5,            // 3D объём и блик ленты [0..10] (5.5 = 0.55)
   widthSpeed: 2.8,              // Скорость изменения толщины [0..10] (2.8 = 0.22)
@@ -384,7 +403,7 @@ const params = {
   layer3Split: '#ff6b6b',
 
   // Background & Atmosphere
-  bgMode: 'nebula',
+  bgMode: isSoftwareRenderer ? 'radial' : 'nebula',
   bgPreset: '🌑 Монохромный Графит',
   bgInner: '#0c1527',
   bgOuter: '#030406',
@@ -393,12 +412,12 @@ const params = {
   nebulaSpeed: 2.5,
   nebulaScale: 1.4,
   vignette: 0.75,
-  dropShadow: 5.0,              // Тень мандалы на фон [0..10] (5.0 = 0.50)
+  dropShadow: isSoftwareRenderer ? 0.0 : 5.0,              // Тень мандалы на фон [0..10] (5.0 = 0.50)
   filmGrain: 0.0,
 
   // Performance & Graphics
   fboResolution: defaultFbo,
-  screenDpi: 1.5,
+  screenDpi: isSoftwareRenderer ? 1.0 : 1.5,
   autoRadiusCoupling: true,
   keepAwake: true,              // Не давать экрану гаснуть (Wake Lock для вечеринок/VJ)
   batteryEcoMode: false         // Эко-режим только при работе от батареи
@@ -416,8 +435,12 @@ kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
 kaleidoscopeMaterial.uniforms.uFilmGrain.value = params.filmGrain;
 kaleidoscopeMaterial.uniforms.uDropShadow.value = params.dropShadow * 0.10;
 
-// Sync initial paper material 3D volume and edge rim
+// Sync initial paper material uniforms
 ribbons.forEach(r => {
+  r.material.uniforms.uRoughness.value = params.roughness * 0.10;
+  r.splitMaterial.uniforms.uRoughness.value = params.roughness * 0.10;
+  r.material.uniforms.uFiberIntensity.value = params.fiberIntensity * 0.08;
+  r.splitMaterial.uniforms.uFiberIntensity.value = params.fiberIntensity * 0.08;
   r.material.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
   r.splitMaterial.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
   r.material.uniforms.uRibbonVolume.value = params.ribbonVolume * 0.10;
@@ -874,8 +897,20 @@ function loadSavedSettings(silent = false) {
       if (typeof ctrl.getValue() === 'function') return;
 
       if (data.params && prop in data.params) {
-        if (prop === 'fboResolution' && data.params[prop] < 2048) {
-          ctrl.setValue(2560);
+        if (isSoftwareRenderer) {
+          if (prop === 'fboResolution') {
+            ctrl.setValue(512);
+          } else if (prop === 'roughness' || prop === 'fiberIntensity' || prop === 'dropShadow') {
+            ctrl.setValue(0);
+          } else if (prop === 'screenDpi') {
+            ctrl.setValue(1.0);
+          } else if (prop === 'bgMode') {
+            ctrl.setValue('radial');
+          } else {
+            ctrl.setValue(data.params[prop]);
+          }
+        } else if (prop === 'fboResolution' && data.params[prop] > 1920 && isMobileOrIntegrated) {
+          ctrl.setValue(1536);
         } else {
           ctrl.setValue(data.params[prop]);
         }
@@ -987,9 +1022,11 @@ fPerf.add(params, 'fboResolution', {
   '💎 Ультра Retina (2560px · Рекомендуется)': 2560,
   '🎨 Высокое (2048px · Чётко)': 2048,
   '⚡ Баланс (1536px · Быстро)': 1536,
-  '🚀 Турбо (1024px · Легко)': 1024
+  '🚀 Турбо (1024px · Легко)': 1024,
+  '🛡️ Эко / Софтверный (512px · Ультра-легко)': 512
 }).name('Качество холста (FBO)').onChange(v => setFboResolution(v));
 fPerf.add(params, 'screenDpi', {
+  '🛡️ Софтверный / Эко (1.0x)': 1.0,
   '⚡ Стандарт (1.2x)': 1.2,
   '🎨 Высокая чёткость (1.5x)': 1.5,
   '💎 Ultra Retina (2.0x)': 2.0
@@ -1482,6 +1519,16 @@ if (params.keepAwake) {
   acquireWakeLock();
 }
 
+// Low fillrate / software rasterizer fallback state
+let hasAutoDegraded = false;
+let consecutiveLowFpsCount = 0;
+
+if (isSoftwareRenderer) {
+  setTimeout(() => {
+    showToast('🛡️ Софтверный режим CPU: оптимизировано (512px, 60 FPS)');
+  }, 1000);
+}
+
 // Complete GPU shutdown when display sleeps, PC locks, or tab is hidden
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
@@ -1676,8 +1723,32 @@ function animate(rafTimestamp) {
       triangles: triangles
     };
 
+    // Dynamic Fillrate Auto-Defense (if device struggles with full FBM/fillrate)
+    if (avgFps < 15 && !hasAutoDegraded && (elapsedTime > 2.0 && elapsedTime < 25.0)) {
+      consecutiveLowFpsCount++;
+      if (consecutiveLowFpsCount >= 3) {
+        hasAutoDegraded = true;
+        console.warn('[Spectromorphology] Low fillrate detected (FPS: ' + avgFps + '). Activating Safe Lite Mode...');
+        setFboResolution(512);
+        renderer.setPixelRatio(1.0);
+        ribbons.forEach(r => {
+          r.material.uniforms.uRoughness.value = 0.0;
+          r.material.uniforms.uFiberIntensity.value = 0.0;
+          r.splitMaterial.uniforms.uRoughness.value = 0.0;
+          r.splitMaterial.uniforms.uFiberIntensity.value = 0.0;
+        });
+        kaleidoscopeMaterial.uniforms.uDropShadow.value = 0.0;
+        kaleidoscopeMaterial.uniforms.uBgType.value = 1.0;
+        showToast('⚡ Авто-оптимизация: включен безопасный режим (512px, 60 FPS)');
+      }
+    } else if (avgFps >= 25) {
+      consecutiveLowFpsCount = 0;
+    }
+
     if (perfFpsEl) {
-      const ecoTag = params.batteryEcoMode && isRunningOnBattery ? ' [Eco 30]' : '';
+      const ecoTag = params.batteryEcoMode && isRunningOnBattery 
+        ? ' [Eco 30]' 
+        : (isSoftwareRenderer ? ' [CPU Safe]' : (hasAutoDegraded ? ' [Auto-Lite]' : ''));
       perfFpsEl.textContent = `${avgFps.toFixed(1)} FPS${ecoTag}`;
       perfFpsEl.style.color = avgFps >= 50 ? '#48bb78' : (avgFps >= 26 ? '#ecc94b' : '#f56565');
     }
@@ -1702,6 +1773,18 @@ function animate(rafTimestamp) {
     lastPerfSampleTime = nowMs;
   }
 
+  function getGpuInfo() {
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const unmasked = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+      const std = gl.getParameter(gl.RENDERER) || '';
+      return unmasked || std || 'unknown';
+    } catch (e) {
+      return 'err: ' + e.message;
+    }
+  }
+
   // Periodic report to server every 1.5s
   if (nowMs - lastPostTime >= 1500) {
     lastPostTime = nowMs;
@@ -1709,6 +1792,7 @@ function animate(rafTimestamp) {
       ...liveMetrics,
       timestamp: Date.now(),
       fboSize: currentFboSize,
+      gpuRenderer: getGpuInfo(),
       screen: `${window.innerWidth}x${window.innerHeight}`,
       pixelRatio: window.devicePixelRatio,
       sectors: params.sectors,
