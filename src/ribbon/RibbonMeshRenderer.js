@@ -260,9 +260,46 @@ export class RibbonMeshRenderer {
       const halfWidth = (vertebraWidth * 0.5) * headTaper * tailTaper;
       const actualWidth = halfWidth * 2.0;
 
+      // Inner edge clamp: on sharp turns (where halfWidth > local turn radius),
+      // clamp inner extrusion so inner vertices never cross and invert the quad.
+      let halfWidthLeft = halfWidth;
+      let halfWidthRight = halfWidth;
+
+      if (i > 0 && i < segs - 1) {
+        const pPrev = spine[i - 1];
+        const pCurr = curr;
+        const pNext = spine[i + 1];
+
+        const dInX = pCurr.x - pPrev.x;
+        const dInY = pCurr.y - pPrev.y;
+        const dOutX = pNext.x - pCurr.x;
+        const dOutY = pNext.y - pCurr.y;
+
+        const lenIn = Math.hypot(dInX, dInY);
+        const lenOut = Math.hypot(dOutX, dOutY);
+
+        if (lenIn > 0.0001 && lenOut > 0.0001) {
+          // 2D cross product: > 0 = turning left, < 0 = turning right
+          const crossZ = dInX * dOutY - dInY * dOutX;
+          const dot = THREE.MathUtils.clamp((dInX * dOutX + dInY * dOutY) / (lenIn * lenOut), -1.0, 1.0);
+          const angle = Math.acos(dot);
+          const sinHalf = Math.sin(angle * 0.5);
+
+          if (sinHalf > 0.05) {
+            const minChord = Math.min(lenIn, lenOut);
+            const safeLimit = (minChord / (2.0 * sinHalf)) * 0.92;
+            if (crossZ > 0.00001) {
+              halfWidthLeft = Math.min(halfWidth, safeLimit);
+            } else if (crossZ < -0.00001) {
+              halfWidthRight = Math.min(halfWidth, safeLimit);
+            }
+          }
+        }
+      }
+
       // Left / right vertices along true normal
-      this._tmpLeft.copy(c).addScaledVector(this._tmpNormal, halfWidth);
-      this._tmpRight.copy(c).addScaledVector(this._tmpNormal, -halfWidth);
+      this._tmpLeft.copy(c).addScaledVector(this._tmpNormal, halfWidthLeft);
+      this._tmpRight.copy(c).addScaledVector(this._tmpNormal, -halfWidthRight);
 
       // Write positions
       const vIdx = i * 2;

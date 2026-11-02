@@ -307,7 +307,7 @@ export class TrailHistory {
 
       // Forward extrapolation point ahead of head along exact kinematic heading
       this._tmpDir.set(Math.cos(headingAngle), Math.sin(headingAngle));
-      this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, segDist - this.accumDistA);
+      this._forwardPtA.copy(headA).addScaledVector(this._tmpDir, segDist);
 
       this.spine[0].copy(headA);
       this.widths[0] = headWidthA;
@@ -373,7 +373,7 @@ export class TrailHistory {
       const alphaB = THREE.MathUtils.clamp(this.accumDistB / Math.max(0.00001, segDist), 0.0, 1.0);
 
       this._tmpDir.set(Math.cos(headingAngle), Math.sin(headingAngle));
-      this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, segDist - this.accumDistB);
+      this._forwardPtB.copy(headB).addScaledVector(this._tmpDir, segDist);
 
       this.splitSpine[0].copy(headB);
       this.tangentsB[0].set(-this._tmpDir.x, -this._tmpDir.y);

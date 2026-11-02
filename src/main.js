@@ -121,7 +121,7 @@ const ribbons = [
     minTurnRadius: 0.08,
     color: 0xef2353,
     splitColor: 0xffaa00,
-    segments: 100,
+    segments: 140,
     maxWidth: 0.08,
     widthLimit: 0.032,            // Верхний потолок толщины (4.0 * 0.008)
     widthSpeed: 0.22,
@@ -155,7 +155,7 @@ const ribbons = [
     minTurnRadius: 0.08,
     color: 0x00d2d3,
     splitColor: 0x10ac84,
-    segments: 100,
+    segments: 140,
     maxWidth: 0.075,
     widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
@@ -189,7 +189,7 @@ const ribbons = [
     minTurnRadius: 0.08,
     color: 0x9b59b6,
     splitColor: 0xff6b6b,
-    segments: 100,
+    segments: 140,
     maxWidth: 0.07,
     widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
