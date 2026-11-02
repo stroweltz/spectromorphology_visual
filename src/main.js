@@ -363,6 +363,8 @@ const params = {
   strokeWidthLimit: 4.0,       // Потолок толщины [0..10] (10.0 = полная кисть 0.080)
   roughness: 3.5,               // Рваный край [0..10] (3.5 = 0.35)
   fiberIntensity: 3.5,          // Волокна бумаги [0..10] (3.5 = 0.28)
+  edgeBorder: 6.5,              // Кайма кромки / четкость перекрытий [0..10] (6.5 = 0.65)
+  ribbonVolume: 5.5,            // 3D объём и блик ленты [0..10] (5.5 = 0.55)
   widthSpeed: 2.8,              // Скорость изменения толщины [0..10] (2.8 = 0.22)
   centerTaperStrength: 8.5,     // Сужение к центру [0..10] (8.5 = 0.85)
   centerTaperRadius: 5.8,       // Радиус сужения [1..10] (5.8 = 0.35)
@@ -391,6 +393,7 @@ const params = {
   nebulaSpeed: 2.5,
   nebulaScale: 1.4,
   vignette: 0.75,
+  dropShadow: 5.0,              // Тень мандалы на фон [0..10] (5.0 = 0.50)
   filmGrain: 0.0,
 
   // Performance & Graphics
@@ -411,6 +414,15 @@ kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = params.nebulaSpeed * 0.10;
 kaleidoscopeMaterial.uniforms.uNebulaScale.value = params.nebulaScale;
 kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
 kaleidoscopeMaterial.uniforms.uFilmGrain.value = params.filmGrain;
+kaleidoscopeMaterial.uniforms.uDropShadow.value = params.dropShadow * 0.10;
+
+// Sync initial paper material 3D volume and edge rim
+ribbons.forEach(r => {
+  r.material.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
+  r.splitMaterial.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
+  r.material.uniforms.uRibbonVolume.value = params.ribbonVolume * 0.10;
+  r.splitMaterial.uniforms.uRibbonVolume.value = params.ribbonVolume * 0.10;
+});
 
 // ── Helper: propagate sector / mirror changes to all ribbon instances ──
 function updateAllInstances() {
@@ -1193,6 +1205,20 @@ fPaper.add(params, 'fiberIntensity', 0.0, 10.0, 0.1).name('Волокна бум
   ribbons.forEach(r => {
     r.material.uniforms.uFiberIntensity.value = norm;
     r.splitMaterial.uniforms.uFiberIntensity.value = norm;
+  });
+});
+fPaper.add(params, 'edgeBorder', 0.0, 10.0, 0.1).name('✒️ Тёмная кайма кромки (0..10)').onChange(v => {
+  const norm = v * 0.10;
+  ribbons.forEach(r => {
+    r.material.uniforms.uEdgeBorder.value = norm;
+    r.splitMaterial.uniforms.uEdgeBorder.value = norm;
+  });
+});
+fPaper.add(params, 'ribbonVolume', 0.0, 10.0, 0.1).name('🔮 3D объём и блик (0..10)').onChange(v => {
+  const norm = v * 0.10;
+  ribbons.forEach(r => {
+    r.material.uniforms.uRibbonVolume.value = norm;
+    r.splitMaterial.uniforms.uRibbonVolume.value = norm;
   });
 });
 fPaper.add(params, 'widthSpeed', 0.0, 10.0, 0.1).name('Скорость дыхания (0..10)').onChange(v => {

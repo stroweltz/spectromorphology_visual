@@ -11,6 +11,8 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       uOpacity: { value: 0.92 },
       uRoughness: { value: 0.35 },      // torn deckled edge roughness
       uFiberIntensity: { value: 0.28 }, // pulp/fiber texture
+      uEdgeBorder: { value: 0.65 },     // dark ink edge rim for clear layer occlusion
+      uRibbonVolume: { value: 0.55 },   // 3D cylindrical volume shading
       uTime: { value: 0.0 }
     },
     vertexShader: /* glsl */ `
@@ -50,6 +52,8 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       uniform float uOpacity;
       uniform float uRoughness;
       uniform float uFiberIntensity;
+      uniform float uEdgeBorder;
+      uniform float uRibbonVolume;
       uniform float uTime;
 
       // --- Fast 2D Hash & Value Noise ---
@@ -110,10 +114,16 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
 
         vec2 paperCoord = vPosition.xy * 24.0;
 
-        if (distFromCenter >= edgeCutThreshold && effectiveRoughness > 0.01) {
-          float edgeNoise = fbm(paperCoord) * effectiveRoughness;
-          float edgeProfile = distFromCenter + (edgeNoise - 0.5 * effectiveRoughness);
-          alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
+        if (effectiveRoughness > 0.01) {
+          if (distFromCenter >= edgeCutThreshold) {
+            float edgeNoise = fbm(paperCoord) * effectiveRoughness;
+            float edgeProfile = distFromCenter + (edgeNoise - 0.5 * effectiveRoughness);
+            alphaEdge = 1.0 - smoothstep(0.82, 0.98, edgeProfile);
+            if (alphaEdge <= 0.005) discard;
+          }
+        } else {
+          // Antialiased outer boundary when roughness is turned off
+          alphaEdge = 1.0 - smoothstep(0.92, 0.99, distFromCenter);
           if (alphaEdge <= 0.005) discard;
         }
 
@@ -138,6 +148,23 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
           col = mix(col, mix(col * 0.85, col * 1.15, pulpDensity), clamp(paperPulp * 2.0, 0.0, 1.0));
           // Darken micro-fibers slightly
           col -= fiberFaint * uFiberIntensity * 0.3;
+        }
+        // 4b. 3D Ribbon Volumetric Curvature (Cylindrical Lighting & Specular Sheen)
+        if (uRibbonVolume > 0.001) {
+          float normDist = clamp(distFromCenter / 0.85, 0.0, 1.0);
+          float curve = sqrt(1.0 - normDist * normDist);
+          float volumeShade = mix(0.70, 1.15, curve);
+          // Highlight ridge along the center spine
+          float crest = pow(curve, 3.5) * 0.22;
+          col = col * mix(1.0, volumeShade, uRibbonVolume) + col * (crest * uRibbonVolume);
+        }
+
+        // 4c. Calligraphic Edge Rim / Ink Boundary (Coffee-Ring Effect)
+        // Darkens the outer boundary so overlapping ribbons have crisp, legible occlusion!
+        if (uEdgeBorder > 0.001) {
+          float rim = smoothstep(0.58, 0.86, distFromCenter);
+          float rimDarken = 1.0 - 0.55 * uEdgeBorder;
+          col = mix(col, col * rimDarken, rim);
         }
 
         // 5. Feathered ends of stroke (start & end)

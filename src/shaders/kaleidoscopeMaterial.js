@@ -25,6 +25,7 @@ export function createKaleidoscopeMaterial() {
       uBlob4: { value: new THREE.Vector2() },
       uBreath: { value: 1.0 },
       uVignette: { value: 0.75 },
+      uDropShadow: { value: 0.50 }, // 3D ambient shadow cast by mandala onto background
       uAspect: { value: 1.0 },
       uFilmGrain: { value: 0.0 },
       uTime: { value: 0.0 }
@@ -59,6 +60,7 @@ export function createKaleidoscopeMaterial() {
       uniform vec2 uBlob4;
       uniform float uBreath;
       uniform float uVignette;
+      uniform float uDropShadow;
       uniform float uAspect;
       uniform float uFilmGrain;
       uniform float uTime;
@@ -164,6 +166,19 @@ export function createKaleidoscopeMaterial() {
             vec3 aurora = (uBgInner * band1 + uBgAccent * band2 * 0.75) * auroraMask * uNebulaIntensity * 0.7;
             bg = uBgOuter + aurora;
           }
+        }
+
+        // ── 3D Ambient Drop Shadow onto Background Canvas ──
+        if (uDropShadow > 0.001) {
+          // Soft 2-tap directional contact shadow (offset slightly down-right in UV)
+          vec2 shadowOff = vec2(0.0035, -0.0035) * (uStrokeScale * 1.5);
+          float sA1 = texture2D(tDiffuse, sampleUV - shadowOff).a;
+          float sA2 = texture2D(tDiffuse, sampleUV - shadowOff * 1.7).a;
+          float shadowAlpha = clamp(sA1 * 0.65 + sA2 * 0.35, 0.0, 1.0);
+
+          // Shadow only dims background pixels outside the stroke itself
+          float shadowDarken = shadowAlpha * (1.0 - stroke.a) * (uDropShadow * 0.65);
+          bg *= (1.0 - shadowDarken);
         }
 
         // Composite strokes over dark background
