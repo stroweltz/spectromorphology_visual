@@ -463,8 +463,8 @@ const params = {
   manualRotation: 0.0,
   zoom: 1.0,
 
-  // Motion Mode & Orbital Gravity (🪐 Гравитационный режим)
-  motionMode: 'gravity',        // 'classic' (3 кисти) | 'gravity' (4-6 кистей)
+  // Motion Mode & Trajectory Kinematics
+  motionMode: 'classic',        // 'classic' (Органический) | 'octilinear' (45°/90° со скруглениями)
   gravityBrushCount: 5,         // 4, 5, 6 кистей
   gravityG: 1.25,               // Гравитационная постоянная G [0.2 .. 3.5]
   gravityCentralMass: 3.2,      // Масса центрального аттрактора M [0.5 .. 8.0]
@@ -939,13 +939,12 @@ window.addEventListener('keydown', (e) => {
   }
   if ((e.key === 'g' || e.key === 'G' || e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.altKey && !e.metaKey) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
-    const modeOrder = ['classic', 'gravity', 'octilinear'];
+    const modeOrder = ['classic', 'octilinear'];
     const nextIdx = (modeOrder.indexOf(params.motionMode) + 1) % modeOrder.length;
     const nextMode = modeOrder[nextIdx];
     syncMotionMode(nextMode);
     const modeLabels = {
       classic: '🌊 Режим: Классический (Органический)',
-      gravity: '🪐 Режим: Гравитационный (N-body 4-6 кистей)',
       octilinear: '📐 Режим: Линейно-диагональный (Octilinear Grid)'
     };
     showToast(modeLabels[nextMode]);
@@ -1049,7 +1048,9 @@ function loadSavedSettings(silent = false) {
       if (typeof ctrl.getValue() === 'function') return;
 
       if (data.params && prop in data.params) {
-        if (prop === 'fboResolution' && data.params[prop] < 2048) {
+        if (prop === 'motionMode' && data.params[prop] === 'gravity') {
+          ctrl.setValue('classic');
+        } else if (prop === 'fboResolution' && data.params[prop] < 2048) {
           ctrl.setValue(2560);
         } else {
           ctrl.setValue(data.params[prop]);
@@ -1230,15 +1231,15 @@ layerConfigs.forEach((cfg, idx) => {
   });
 });
 
-// ── 🪐 Глобальные опции режимов движения ──
+// ── Глобальные опции режимов движения ──
 const MOTION_MODE_OPTIONS = {
-  '🪐 Гравитационный (4-6 кистей)': 'gravity',
   '🌊 Классический (Органический)': 'classic',
   '📐 Линейно-диагональный (Octilinear)': 'octilinear'
 };
 
-// ── 🪐 Гравитационный режим (N-body орбиты) ──
+// ── 🪐 Гравитационный режим (N-body орбиты, скрыт из UI) ──
 const fGravity = gui.addFolder('🪐 Гравитационный режим (N-body)');
+fGravity.hide();
 
 const gravityModeCtrl = fGravity.add(params, 'motionMode', MOTION_MODE_OPTIONS)
   .name('Режим движения')
@@ -1314,10 +1315,11 @@ fGravity.add({
 }, 'resetOrbits').name('✨ Перезапуск орбит');
 
 function syncMotionMode(mode = params.motionMode) {
+  if (mode === 'gravity') mode = 'classic';
   params.motionMode = mode;
-  const isGravity = (mode === 'gravity');
+  const isGravity = false;
   const isOctilinear = (mode === 'octilinear');
-  const activeCount = isGravity ? params.gravityBrushCount : 3;
+  const activeCount = 3;
 
   ribbons.forEach((ribbon, idx) => {
     const isSlotActive = (idx < activeCount);
@@ -1351,21 +1353,14 @@ function syncMotionMode(mode = params.motionMode) {
     ribbon.reset();
   });
 
-  if (isGravity) {
-    gravitySim.setBodyCount(params.gravityBrushCount);
-    gravitySim.resetAllOrbits();
-    if (typeof fGravity !== 'undefined') fGravity.open();
-    if (typeof fOctilinear !== 'undefined') fOctilinear.close();
-  } else if (isOctilinear) {
+  if (isOctilinear) {
     if (typeof fOctilinear !== 'undefined') fOctilinear.open();
-    if (typeof fGravity !== 'undefined') fGravity.close();
+    if (typeof fFish !== 'undefined') fFish.close();
   } else {
     if (typeof fFish !== 'undefined') fFish.open();
-    if (typeof fGravity !== 'undefined') fGravity.close();
     if (typeof fOctilinear !== 'undefined') fOctilinear.close();
   }
 
-  if (typeof gravityModeCtrl !== 'undefined') gravityModeCtrl.setValue(mode);
   if (typeof fishModeCtrl !== 'undefined') fishModeCtrl.setValue(mode);
   if (typeof octilinearModeCtrl !== 'undefined') octilinearModeCtrl.setValue(mode);
 
