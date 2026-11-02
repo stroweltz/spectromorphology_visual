@@ -177,6 +177,24 @@ export class KinematicBrushAgent {
   }
 
   /**
+   * Synchronizes kinematic state from another brush agent during live mode switching.
+   * @param {Object} other
+   */
+  syncFrom(other) {
+    if (!other) return;
+    this.pos.copy(other.pos);
+    this._prevPos.copy(this.pos);
+    this.headingAngle = other.headingAngle;
+    this.angularVelocity = 0.0;
+    this.speed = other.speed;
+    this.orbitSpeed = other.orbitSpeed;
+    this.maxBoundaryRadius = other.maxBoundaryRadius;
+    this.minTurnRadius = other.minTurnRadius;
+    this.tangent.set(Math.cos(this.headingAngle), Math.sin(this.headingAngle));
+    this.normal.set(-this.tangent.y, this.tangent.x);
+  }
+
+  /**
    * Resets the agent to initial orbit position and tangent heading.
    */
   reset() {
