@@ -332,7 +332,7 @@ ribbons.forEach((ribbon, index) => {
   ribbon.filletRadius = 0.08;
   ribbon.stepLength = 0.22;
   ribbon.turnAngleBalance = 0.45;
-  ribbon.branchMode = 'fork';
+  ribbon.branchMode = 'parallel';
 });
 
 // 4. Main Display Scene & Fullscreen Kaleidoscope Quad
@@ -493,7 +493,7 @@ const params = {
   gridFilletRadius: 0.08,       // Радиус кругового переходного скругления углов R_fillet [0.02..0.20]
   gridStepLength: 0.22,         // Длина шага прямого отрезка до поворота [0.05..0.50]
   gridTurnBalance: 0.45,        // Баланс вероятности поворотов: 45° vs 90° [0..1]
-  gridBranchMode: 'fork',       // Режим ветвления Head B: 'fork' (развилка со скруглением) | 'parallel' (параллельные шины)
+  gridBranchMode: 'parallel',   // Режим ветвления Head B: 'parallel' (параллельные шины) | 'fork' (развилка со скруглением)
 
   // Canvas Persistence
   persistentCanvas: false,      // Накапливать рисунок на холсте (вечное рисование)
@@ -1471,8 +1471,8 @@ const turnBalanceCtrl = fOctilinear.add(params, 'gridTurnBalance', 0.0, 1.0, 0.0
   });
 
 const branchModeCtrl = fOctilinear.add(params, 'gridBranchMode', {
-  '🔱 Развилка со скруглением': 'fork',
-  '🛤️ Параллельные шины': 'parallel'
+  '🛤️ Параллельные шины': 'parallel',
+  '🔱 Развилка со скруглением': 'fork'
 }).name('Ветвление Head B').listen().onChange(v => {
   ribbons.forEach(r => r.branchMode = v);
 });

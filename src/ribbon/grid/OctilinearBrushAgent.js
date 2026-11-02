@@ -72,7 +72,7 @@ export class OctilinearBrushAgent {
     this.stepLength = options.stepLength ?? 0.22;     // Base straight step length: 0.05 .. 0.50
     this.stepJitter = options.stepJitter ?? 0.35;     // Randomness in straight segment length
     this.turnAngleBalance = options.turnAngleBalance ?? 0.45; // 0.0 = only 45°, 1.0 = only 90°
-    this.branchMode = options.branchMode ?? 'fork';   // 'fork' | 'parallel'
+    this.branchMode = options.branchMode ?? 'parallel'; // 'parallel' | 'fork'
     this.isOctilinear = true;
 
     // Speed Dynamics & Drift
@@ -265,39 +265,19 @@ export class OctilinearBrushAgent {
     const invR = 1.0 / Math.max(0.0001, r);
     this._vInward.set(-this.pos.x * invR, -this.pos.y * invR);
 
-    // Raw candidates are strictly ±45° (±1) and ±90° (±2)
+    // Candidates are exclusively ±45° (±1) and ±90° (±2). (Turns > 90° strictly forbidden)
     const rawCandidates = [1, -1, 2, -2];
     const R = Math.max(0.005, this.filletRadius);
     const rOuter = this.maxBoundaryRadius;
-    const curDir = OCT_DIRS[this.dirIndex];
 
     let bestDeltaK = rawCandidates[0];
-    let bestScore = -99999.0;
+    let bestScore = -999999.0;
 
     for (let i = 0; i < rawCandidates.length; i++) {
       const dK = rawCandidates[i];
-
-      // STRICT PROHIBITION ON TURNS > 90°:
-      // If previous turn was a 90° turn in direction sign, forbid another same-direction turn
-      // which would result in a 135° or 180° U-turn!
-      if (this._consecutiveTurnCount >= 1 && Math.abs(this._prevTurnDeltaK) >= 2) {
-        if (Math.sign(dK) === this._lastTurnSign) {
-          continue; // Disqualified: hairpin U-turn
-        }
-      }
-
       const candIdx = (this.dirIndex + dK + NUM_DIRS * 2) % NUM_DIRS;
       const cDir = OCT_DIRS[candIdx];
 
-      // MATHEMATICAL INVARIANT: Candidate direction dot current direction must be >= 0 (angle <= 90°)
-      if (cDir.dot(curDir) < -0.001) {
-        continue; // Disqualified: > 90° turn
-      }
-
-      // Inward alignment score
-      const inwardScore = cDir.dot(this._vInward);
-
-      // Calculate candidate circular arc endpoint
       const sign = Math.sign(dK);
       const startAngle = this.dirIndex * DIR_STEP;
       const targetAngle = startAngle + dK * DIR_STEP;
@@ -306,17 +286,32 @@ export class OctilinearBrushAgent {
       const cx = this.pos.x + sign * R * nx;
       const cy = this.pos.y + sign * R * ny;
 
-      // Arc end position
       const endX = cx + sign * R * Math.sin(targetAngle);
       const endY = cy - sign * R * Math.cos(targetAngle);
       const endR = Math.hypot(endX, endY);
 
-      // Penalize candidates that breach the boundary radius
-      let score = inwardScore * 4.0;
-      if (endR > rOuter) {
-        score -= (endR - rOuter) * 20.0;
+      // Lookahead point 0.15 ahead along candidate direction after the arc
+      const lookX = endX + cDir.x * 0.15;
+      const lookY = endY + cDir.y * 0.15;
+      const lookR = Math.hypot(lookX, lookY);
+
+      // Radial alignment at arc endpoint: > 0 means moving outward!
+      const endRadial = (endX * cDir.x + endY * cDir.y) / Math.max(0.0001, endR);
+
+      let score = 0.0;
+      score += cDir.dot(this._vInward) * 50.0;
+      score -= endRadial * 60.0;
+
+      if (endR > rOuter * 0.95) {
+        score -= (endR - rOuter * 0.95) * 400.0;
       } else {
-        score += (rOuter - endR) * 2.5;
+        score += (rOuter - endR) * 30.0;
+      }
+
+      if (lookR > rOuter * 0.95) {
+        score -= (lookR - rOuter * 0.95) * 400.0;
+      } else {
+        score += (rOuter - lookR) * 30.0;
       }
 
       if (score > bestScore) {
@@ -340,18 +335,15 @@ export class OctilinearBrushAgent {
     const is90 = (Math.random() < this.turnAngleBalance);
     const mag = is90 ? 2 : 1; // 1 = 45°, 2 = 90°
 
-    // 2. Decide left (+mag) vs right (-mag)
     let sign = Math.random() < 0.5 ? 1 : -1;
 
-    // STRICT PROHIBITION ON TURNS > 90°:
-    // If last turn was 90°, forbid continuing in same direction to prevent 135°/180° hairpins
-    if (this._consecutiveTurnCount >= 1 && Math.abs(this._prevTurnDeltaK) >= 2) {
-      sign = -this._lastTurnSign; // Must weave in opposite direction
-    } else if (this._consecutiveTurnCount >= 2) {
-      sign = -this._lastTurnSign; // Anti-looping
+    // Anti-looping: if 2+ consecutive turns in same direction, weave opposite
+    if (this._consecutiveTurnCount >= 2) {
+      sign = -this._lastTurnSign;
     }
 
-    if (r > this.maxBoundaryRadius * 0.45) {
+    // When away from center, bias turns towards the inside of the mandala
+    if (r > this.maxBoundaryRadius * 0.55) {
       const invR = 1.0 / Math.max(0.0001, r);
       const inX = -this.pos.x * invR;
       const inY = -this.pos.y * invR;
@@ -361,15 +353,7 @@ export class OctilinearBrushAgent {
       const sL = OCT_DIRS[leftIdx].x * inX + OCT_DIRS[leftIdx].y * inY;
       const sR = OCT_DIRS[rightIdx].x * inX + OCT_DIRS[rightIdx].y * inY;
 
-      if (sL > sR + 0.15 && sign !== 1) {
-        if (!(this._consecutiveTurnCount >= 1 && Math.abs(this._prevTurnDeltaK) >= 2 && this._lastTurnSign === 1)) {
-          sign = 1;
-        }
-      } else if (sR > sL + 0.15 && sign !== -1) {
-        if (!(this._consecutiveTurnCount >= 1 && Math.abs(this._prevTurnDeltaK) >= 2 && this._lastTurnSign === -1)) {
-          sign = -1;
-        }
-      }
+      sign = sL >= sR ? 1 : -1;
     }
 
     return sign * mag;
@@ -392,26 +376,25 @@ export class OctilinearBrushAgent {
       const r = this.pos.length();
 
       // Lookahead check for boundary approach
-      const dLookahead = R * 1.6 + v * 0.10;
+      const dLookahead = R * 1.6 + v * 0.16;
       this._lookaheadPos.copy(this.pos).addScaledVector(this.tangent, dLookahead);
       const lookaheadR = this._lookaheadPos.length();
       const radialSpeed = (this.pos.x * this.tangent.x + this.pos.y * this.tangent.y) / Math.max(0.001, r);
 
-      // MANDATORY STRAIGHT CORRIDOR:
-      // After any turn, the brush MUST travel straight for at least minStraightDist before any subsequent turn!
-      const minStraightDist = Math.max(0.12, R * 2.0);
+      const minStraightDist = Math.max(0.08, R * 1.5);
       const canTurnNow = (this.straightDist >= minStraightDist);
 
-      const needsBoundaryTurn = canTurnNow && (
-        (lookaheadR >= rOuter * 0.92 && radialSpeed > 0.0) ||
-        (r >= rOuter * 0.88 && radialSpeed > 0.1)
-      );
+      // BOUNDARY TURN TRIGGER:
+      // If heading outward and approaching boundary, turn immediately!
+      // Never gated by minStraightDist if in critical boundary zone.
+      const isCriticalBoundary = (r >= rOuter * 0.88 && radialSpeed > 0.05) || (lookaheadR >= rOuter * 0.92 && radialSpeed > 0.0);
+      const needsBoundaryTurn = isCriticalBoundary || (canTurnNow && lookaheadR >= rOuter * 0.84 && radialSpeed > 0.1);
 
       if (this.state === 'STRAIGHT') {
         if (needsBoundaryTurn) {
           const dK = this._pickBoundaryReboundTurn(r);
           this._startFilletTurn(dK);
-        } else if (this.straightDist >= this.targetStraightDist) {
+        } else if (canTurnNow && this.straightDist >= this.targetStraightDist) {
           const dK = this._pickFreeSpaceTurn(r);
           this._startFilletTurn(dK);
         }
@@ -474,10 +457,20 @@ export class OctilinearBrushAgent {
         this.straightDist += v * clampedDt;
       }
 
-      // Outer safety tether in case of extreme perturbation
-      if (r > 1.25) {
-        const elasticPull = Math.min(1.0, (r - 1.25) * 2.0);
-        this.pos.lerp(new THREE.Vector2(0, 0), elasticPull * clampedDt * 2.0);
+      // HARD BOUNDARY CONTAINMENT:
+      // Guarantees r <= rOuter at all times. If exceeded, clamp position and snap heading inward!
+      const currentR = this.pos.length();
+      if (currentR >= rOuter * 0.98) {
+        const clampTarget = rOuter * 0.95;
+        this.pos.multiplyScalar(clampTarget / currentR);
+
+        // Snap heading to best inward octilinear direction
+        const bestInwardIdx = snapToOctilinearIndex(Math.atan2(-this.pos.y, -this.pos.x));
+        this.dirIndex = bestInwardIdx;
+        this.headingAngle = this.dirIndex * DIR_STEP;
+        this.state = 'STRAIGHT';
+        this.straightDist = 0.0;
+        this.targetStraightDist = this._computeNextStraightDist();
       }
     }
 
@@ -602,7 +595,7 @@ export class OctilinearBrushAgent {
 
         // Head B boundary avoidance: smooth fillet turn (never snapping!)
         const rB = this.headBPos.length();
-        if (rB >= this.maxBoundaryRadius * 0.90 && this.headBStraightDist >= 0.12) {
+        if (rB >= this.maxBoundaryRadius * 0.90 && this.headBStraightDist >= 0.10) {
           const invR = 1.0 / Math.max(0.0001, rB);
           const inX = -this.headBPos.x * invR;
           const inY = -this.headBPos.y * invR;
@@ -627,6 +620,21 @@ export class OctilinearBrushAgent {
           this.headBState = 'TURNING';
           this.headBStraightDist = 0.0;
         }
+
+        // Head B hard boundary containment clamp
+        if (rB >= this.maxBoundaryRadius * 0.98) {
+          this.headBPos.multiplyScalar((this.maxBoundaryRadius * 0.95) / rB);
+          this.headBDirIndex = snapToOctilinearIndex(Math.atan2(-this.headBPos.y, -this.headBPos.x));
+          this.headBHeading = this.headBDirIndex * DIR_STEP;
+        }
+      }
+
+      // During CLOSING or DRAINING, smoothly converge Head B back to Head A
+      if (splitState === 'CLOSING') {
+        const targetB = this.headA.clone().addScaledVector(this.normal, -splitProgress * halfSep);
+        this.headBPos.lerp(targetB, clampedDt * 4.0);
+      } else if (splitState === 'DRAINING') {
+        this.headBPos.copy(this.headA);
       }
 
       this.headB.copy(this.headBPos);
