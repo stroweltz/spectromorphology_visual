@@ -29,11 +29,14 @@ export class BrushDebugOverlay {
     this._trailLength = 80;
     this._trails = ribbons.map(() => []); // Array<Array<{x, y}>>
 
-    // Colors matching each ribbon's base color
+    // Colors matching each ribbon's base color (up to 6 ribbons)
     this._colors = [
       new THREE.Color(0xff6688),  // ribbon 0 – crimson
       new THREE.Color(0x00eeff),  // ribbon 1 – cyan
       new THREE.Color(0xcc88ff),  // ribbon 2 – violet
+      new THREE.Color(0xffaa33),  // ribbon 3 – amber/gold
+      new THREE.Color(0x20e0a0),  // ribbon 4 – mint/emerald
+      new THREE.Color(0xff55aa),  // ribbon 5 – rose/magenta
     ];
 
     // Secondary split branch colors (matching splitMaterials)
@@ -41,6 +44,9 @@ export class BrushDebugOverlay {
       new THREE.Color(0xffaa33),  // ribbon 0 split – amber
       new THREE.Color(0x20e0a0),  // ribbon 1 split – emerald
       new THREE.Color(0xff7788),  // ribbon 2 split – coral
+      new THREE.Color(0xffee55),  // ribbon 3 split – yellow
+      new THREE.Color(0x22ddff),  // ribbon 4 split – sky
+      new THREE.Color(0xff88aa),  // ribbon 5 split – rose
     ];
 
     // Build Three.js helpers
@@ -72,8 +78,12 @@ export class BrushDebugOverlay {
   }
   updateColors(ribbons) {
     ribbons.forEach((r, idx) => {
-      if (this._colors[idx] && r.baseColor) this._colors[idx].copy(r.baseColor);
-      if (this._splitColors[idx] && r.splitColor) this._splitColors[idx].copy(r.splitColor);
+      if (!this._colors[idx]) this._colors[idx] = new THREE.Color();
+      if (!this._splitColors[idx]) this._splitColors[idx] = new THREE.Color();
+      if (r.baseColor) this._colors[idx].copy(r.baseColor);
+      if (r.splitColor) this._splitColors[idx].copy(r.splitColor);
+      if (this._spineLines[idx]) this._spineLines[idx].material.color.copy(this._colors[idx]);
+      if (this._splitSpineLines[idx]) this._splitSpineLines[idx].material.color.copy(this._splitColors[idx]);
     });
   }
 
@@ -428,7 +438,22 @@ export class BrushDebugOverlay {
 
     // ── Per-ribbon overlays ─────────────────────────────────
     this.ribbons.forEach((ribbon, idx) => {
-      if (!this._ribbonVisible[idx]) return;
+      const isRibbonActive = this._ribbonVisible[idx] && ribbon.group.visible;
+      this._spineLines[idx].visible = isRibbonActive;
+      this._headDots[idx].visible = isRibbonActive;
+      this._arrows[idx].visible = isRibbonActive;
+
+      if (!isRibbonActive) {
+        this._splitSpineLines[idx].visible = false;
+        this._splitHeadDots[idx].visible = false;
+        const dots = this._ghostTrails[idx];
+        if (dots) {
+          for (let t = 0; t < this._trailLength; t++) {
+            if (dots[t]) dots[t].material.opacity = 0;
+          }
+        }
+        return;
+      }
 
       const spine = ribbon.spine;   // Array<THREE.Vector2>
       const n     = spine.length;

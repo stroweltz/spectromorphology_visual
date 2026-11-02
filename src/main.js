@@ -34,8 +34,10 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { FishRibbon } from './ribbon/FishRibbon.js';
 import { createKaleidoscopeMaterial } from './shaders/kaleidoscopeMaterial.js';
-import { COLOR_THEMES } from './themes/colorThemes.js';
+import { COLOR_THEMES, getThemeLayerColors } from './themes/colorThemes.js';
 import { BrushDebugOverlay } from './ribbon/BrushDebugOverlay.js';
+import { GravitySimulation } from './ribbon/gravity/GravitySimulation.js';
+import { GravityBrushAgent } from './ribbon/gravity/GravityBrushAgent.js';
 
 // --- Global Setup ---
 const container = document.getElementById('canvas-container');
@@ -141,13 +143,13 @@ const ribbons = [
     widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
     widthSpeedMult: 1.38,        // faster, energetic breathing rate
-    widthPhase: 0.5 * Math.PI + Math.PI * 0.66,
+    widthPhase: 0.5 * Math.PI + Math.PI * 0.4,
     widthHarmonicPhase: 3.7,
     speed: 1.25,
     waveFreq: 4.8,
     waveAmp: 0.0384,              // Фиксированная синусоида вдоль пути
     pathRadius: 0.52,
-    phaseOffset: Math.PI * 0.66,
+    phaseOffset: Math.PI * 0.4,
     orbitSpeed: 0.2,
     speedMultiplier: 1.26,       // faster, agile travel
     speedWanderFreq: 0.36,
@@ -175,13 +177,13 @@ const ribbons = [
     widthLimit: 0.032,            // Верхний потолок толщины
     widthSpeed: 0.22,
     widthSpeedMult: 0.96,        // intermediate breathing rate
-    widthPhase: 0.5 * Math.PI + Math.PI * 1.33,
+    widthPhase: 0.5 * Math.PI + Math.PI * 0.8,
     widthHarmonicPhase: 5.1,
     speed: 0.95,
     waveFreq: 4.8,
     waveAmp: 0.0384,              // Фиксированная синусоида вдоль пути
     pathRadius: 0.30,
-    phaseOffset: Math.PI * 1.33,
+    phaseOffset: Math.PI * 0.8,
     orbitSpeed: 0.2,
     speedMultiplier: 1.02,       // intermediate travel
     speedWanderFreq: 0.28,
@@ -198,10 +200,130 @@ const ribbons = [
     splitThreshold: 0.38,
     splitSeparation: 0.065,
     splitDuration: 5.5
+  }),
+  // Layer 4: Warm Gold / Tangerine with Crimson split (orbital resonance bridge)
+  new FishRibbon({
+    minTurnRadius: 0.08,
+    color: 0xf39c12,
+    splitColor: 0xe74c3c,
+    segments: 100,
+    maxWidth: 0.075,
+    widthLimit: 0.032,
+    widthSpeed: 0.22,
+    widthSpeedMult: 1.15,
+    widthPhase: 0.5 * Math.PI + Math.PI * 1.2,
+    widthHarmonicPhase: 2.3,
+    speed: 1.12,
+    waveFreq: 4.8,
+    waveAmp: 0.0384,
+    pathRadius: 0.46,
+    phaseOffset: Math.PI * 1.2,
+    orbitSpeed: 0.2,
+    speedMultiplier: 1.12,
+    speedWanderFreq: 0.32,
+    speedSeed: 33.7,
+    speedWanderIntensity: 0.55,
+    maxBoundaryRadius: 0.58,
+    headTaperLength: 0.15,
+    headTipWidth: 0.02,
+    randomSpeedEnabled: true,
+    independentWidth: true,
+    fixedPathTrail: true,
+    bifurcationEnabled: true,
+    splitChance: 0.75,
+    splitThreshold: 0.38,
+    splitSeparation: 0.065,
+    splitDuration: 5.5
+  }),
+  // Layer 5: Deep Sky Azure with Aquamarine split (outer orbital sweep)
+  new FishRibbon({
+    minTurnRadius: 0.08,
+    color: 0x0984e3,
+    splitColor: 0x00cec9,
+    segments: 100,
+    maxWidth: 0.07,
+    widthLimit: 0.032,
+    widthSpeed: 0.22,
+    widthSpeedMult: 0.88,
+    widthPhase: 0.5 * Math.PI + Math.PI * 1.6,
+    widthHarmonicPhase: 4.4,
+    speed: 1.05,
+    waveFreq: 4.8,
+    waveAmp: 0.0384,
+    pathRadius: 0.38,
+    phaseOffset: Math.PI * 1.6,
+    orbitSpeed: 0.2,
+    speedMultiplier: 0.94,
+    speedWanderFreq: 0.25,
+    speedSeed: 77.2,
+    speedWanderIntensity: 0.55,
+    maxBoundaryRadius: 0.58,
+    headTaperLength: 0.15,
+    headTipWidth: 0.02,
+    randomSpeedEnabled: true,
+    independentWidth: true,
+    fixedPathTrail: true,
+    bifurcationEnabled: true,
+    splitChance: 0.75,
+    splitThreshold: 0.38,
+    splitSeparation: 0.065,
+    splitDuration: 5.5
+  }),
+  // Layer 6: Neon Fuchsia / Magenta with Sunburst split (cosmic halo envelope)
+  new FishRibbon({
+    minTurnRadius: 0.08,
+    color: 0xe056fd,
+    splitColor: 0xf0932b,
+    segments: 100,
+    maxWidth: 0.075,
+    widthLimit: 0.032,
+    widthSpeed: 0.22,
+    widthSpeedMult: 1.22,
+    widthPhase: 0.5 * Math.PI + Math.PI * 0.2,
+    widthHarmonicPhase: 6.2,
+    speed: 1.18,
+    waveFreq: 4.8,
+    waveAmp: 0.0384,
+    pathRadius: 0.44,
+    phaseOffset: Math.PI * 0.2,
+    orbitSpeed: 0.2,
+    speedMultiplier: 1.08,
+    speedWanderFreq: 0.34,
+    speedSeed: 112.5,
+    speedWanderIntensity: 0.55,
+    maxBoundaryRadius: 0.58,
+    headTaperLength: 0.15,
+    headTipWidth: 0.02,
+    randomSpeedEnabled: true,
+    independentWidth: true,
+    fixedPathTrail: true,
+    bifurcationEnabled: true,
+    splitChance: 0.75,
+    splitThreshold: 0.38,
+    splitSeparation: 0.065,
+    splitDuration: 5.5
   })
 ];
 
+const gravitySim = new GravitySimulation({
+  bodyCount: 5,
+  G: 1.25,
+  centralMass: 3.2,
+  nBodyG: 0.45,
+  boundaryRadius: 0.58,
+  timeScale: 1.0,
+  damping: 0.015,
+  assocDistance: 0.16,
+  slingshotPower: 2.0,
+  tidalBifurcation: true
+});
+
 ribbons.forEach((ribbon, index) => {
+  ribbon._kinematicAgent = ribbon.agent;
+  ribbon._gravityAgent = new GravityBrushAgent(gravitySim, index, {
+    phaseOffset: ribbon.phaseOffset,
+    maxBoundaryRadius: 0.58
+  });
   // Stagger z-depth so layers overlap naturally
   ribbon.group.position.z = -index * 0.02;
   strokeScene.add(ribbon.group);
@@ -335,7 +457,19 @@ const params = {
   manualRotation: 0.0,
   zoom: 1.0,
 
-  // Brush Motion & Trail Kinematics
+  // Motion Mode & Orbital Gravity (🪐 Гравитационный режим)
+  motionMode: 'gravity',        // 'classic' (3 кисти) | 'gravity' (4-6 кистей)
+  gravityBrushCount: 5,         // 4, 5, 6 кистей
+  gravityG: 1.25,               // Гравитационная постоянная G [0.2 .. 3.5]
+  gravityCentralMass: 3.2,      // Масса центрального аттрактора M [0.5 .. 8.0]
+  gravityNBody: 0.45,           // Взаимное N-body притяжение кистей [0.0 .. 2.0]
+  gravityAssocDist: 0.16,       // Дистанция ассоциации / захвата R_assoc [0.05 .. 0.35]
+  gravitySlingshot: 2.0,        // Импульс сброса (slingshot boost) [0.5 .. 4.5]
+  gravitySpeed: 1.0,            // Скорость орбитального времени [0.2 .. 2.5]
+  gravityDamping: 0.015,        // Орбитальный баланс и затухание [0.0 .. 0.08]
+  gravityTidalSplit: true,      // Приливное расщепление (Tidal Bifurcation) в перицентре
+
+  // Brush Motion & Trail Kinematics (Классический режим)
   motionSpeed: 1.1,
   orbitSpeed: 0.2,
   boundaryRadius: 0.58,
@@ -382,6 +516,12 @@ const params = {
   layer2Split: '#10ac84',
   layer3Color: '#9b59b6',
   layer3Split: '#ff6b6b',
+  layer4Color: '#f39c12',
+  layer4Split: '#e74c3c',
+  layer5Color: '#0984e3',
+  layer5Split: '#00cec9',
+  layer6Color: '#e056fd',
+  layer6Split: '#f0932b',
 
   // Background & Atmosphere
   bgMode: 'nebula',
@@ -442,13 +582,13 @@ function updateAllInstances() {
 updateAllInstances();
 
 // ── Asynchronous & Random Speed / Width State & Helpers ──
-const initialSpeedRatios = [0.82, 1.26, 1.02];
-const initialWidthRatios = [0.72, 1.38, 0.96];
+const initialSpeedRatios = [0.82, 1.26, 1.02, 1.12, 0.94, 1.08];
+const initialWidthRatios = [0.72, 1.38, 0.96, 1.15, 0.88, 1.22];
 
 function applySpeedVariance(variance) {
   const norm = variance > 1.0 ? (variance / 10.0) : variance;
   ribbons.forEach((r, idx) => {
-    const baseDev = initialSpeedRatios[idx] - 1.0;
+    const baseDev = (initialSpeedRatios[idx] || 1.0) - 1.0;
     r.speedMultiplier = Math.max(0.2, 1.0 + baseDev * (norm / 0.65));
   });
 }
@@ -467,7 +607,7 @@ function rerollBrushSpeeds() {
 function applyWidthAsymmetry(asymmetry) {
   const norm = asymmetry > 1.0 ? (asymmetry / 10.0) : asymmetry;
   ribbons.forEach((r, idx) => {
-    const baseDev = initialWidthRatios[idx] - 1.0;
+    const baseDev = (initialWidthRatios[idx] || 1.0) - 1.0;
     r.widthSpeedMult = Math.max(0.25, 1.0 + baseDev * (norm / 0.65));
   });
 }
@@ -487,6 +627,7 @@ function rerollBrushWidths() {
 // ── Curated Master Color Themes Integration ────────────────
 let themeCtrl, descCtrl;
 let l1ColCtrl, l1SplitCtrl, l2ColCtrl, l2SplitCtrl, l3ColCtrl, l3SplitCtrl;
+let l4ColCtrl, l4SplitCtrl, l5ColCtrl, l5SplitCtrl, l6ColCtrl, l6SplitCtrl;
 const themeDesc = { text: COLOR_THEMES[params.colorTheme]?.archetype || 'Абсолютный неоновый контраст на черном' };
 
 function applyColorTheme(themeKey) {
@@ -511,7 +652,10 @@ function applyColorTheme(themeKey) {
   if (params.nebulaSpeed !== undefined) kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = params.nebulaSpeed * 0.10;
   kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
 
-  t.layers.forEach((l, idx) => {
+  const activeCount = (params.motionMode === 'gravity') ? params.gravityBrushCount : 3;
+  const themeLayers = getThemeLayerColors(themeKey, Math.max(activeCount, 6));
+
+  themeLayers.forEach((l, idx) => {
     if (ribbons[idx]) {
       ribbons[idx].setColors(l.color, l.splitColor);
     }
@@ -521,12 +665,12 @@ function applyColorTheme(themeKey) {
     brushDebug.updateColors(ribbons);
   }
 
-  params.layer1Color = t.layers[0].color;
-  params.layer1Split = t.layers[0].splitColor;
-  params.layer2Color = t.layers[1].color;
-  params.layer2Split = t.layers[1].splitColor;
-  params.layer3Color = t.layers[2].color;
-  params.layer3Split = t.layers[2].splitColor;
+  if (themeLayers[0]) { params.layer1Color = themeLayers[0].color; params.layer1Split = themeLayers[0].splitColor; }
+  if (themeLayers[1]) { params.layer2Color = themeLayers[1].color; params.layer2Split = themeLayers[1].splitColor; }
+  if (themeLayers[2]) { params.layer3Color = themeLayers[2].color; params.layer3Split = themeLayers[2].splitColor; }
+  if (themeLayers[3]) { params.layer4Color = themeLayers[3].color; params.layer4Split = themeLayers[3].splitColor; }
+  if (themeLayers[4]) { params.layer5Color = themeLayers[4].color; params.layer5Split = themeLayers[4].splitColor; }
+  if (themeLayers[5]) { params.layer6Color = themeLayers[5].color; params.layer6Split = themeLayers[5].splitColor; }
 
   if (t.toneMappingMode) {
     params.toneMappingMode = t.toneMappingMode;
@@ -550,6 +694,12 @@ function applyColorTheme(themeKey) {
   if (l2SplitCtrl) l2SplitCtrl.updateDisplay();
   if (l3ColCtrl) l3ColCtrl.updateDisplay();
   if (l3SplitCtrl) l3SplitCtrl.updateDisplay();
+  if (l4ColCtrl) l4ColCtrl.updateDisplay();
+  if (l4SplitCtrl) l4SplitCtrl.updateDisplay();
+  if (l5ColCtrl) l5ColCtrl.updateDisplay();
+  if (l5SplitCtrl) l5SplitCtrl.updateDisplay();
+  if (l6ColCtrl) l6ColCtrl.updateDisplay();
+  if (l6SplitCtrl) l6SplitCtrl.updateDisplay();
 }
 
 const gui = new GUI({ title: 'Параметры Визуализатора' });
@@ -812,7 +962,7 @@ function showToast(message, isError = false) {
 }
 
 const defaultParams = JSON.parse(JSON.stringify(params));
-const defaultLayerParams = { layer1: true, layer2: true, layer3: true };
+const defaultLayerParams = { layer1: true, layer2: true, layer3: true, layer4: true, layer5: true, layer6: true };
 const defaultPerfParams = { showTelemetry: true };
 const defaultDebugParams = { brushDebugMode: false };
 
@@ -856,11 +1006,11 @@ function loadSavedSettings(silent = false) {
     const data = JSON.parse(raw);
     if (!data) return false;
 
-    if (Array.isArray(data.initialSpeedRatios) && data.initialSpeedRatios.length === 3) {
-      for (let i = 0; i < 3; i++) initialSpeedRatios[i] = data.initialSpeedRatios[i];
+    if (Array.isArray(data.initialSpeedRatios)) {
+      for (let i = 0; i < Math.min(6, data.initialSpeedRatios.length); i++) initialSpeedRatios[i] = data.initialSpeedRatios[i];
     }
-    if (Array.isArray(data.initialWidthRatios) && data.initialWidthRatios.length === 3) {
-      for (let i = 0; i < 3; i++) initialWidthRatios[i] = data.initialWidthRatios[i];
+    if (Array.isArray(data.initialWidthRatios)) {
+      for (let i = 0; i < Math.min(6, data.initialWidthRatios.length); i++) initialWidthRatios[i] = data.initialWidthRatios[i];
     }
 
     if (data.storageParams && typeof data.storageParams.autoSave === 'boolean') {
@@ -1020,6 +1170,12 @@ l2ColCtrl = fCustomColors.addColor(params, 'layer2Color').name('Кисть 2 (С
 l2SplitCtrl = fCustomColors.addColor(params, 'layer2Split').name('Кисть 2 (Середина): Сплит').onChange(v => ribbons[1].setColors(params.layer2Color, v));
 l3ColCtrl = fCustomColors.addColor(params, 'layer3Color').name('Кисть 3 (Орбита): Основной').onChange(v => ribbons[2].setColors(v, params.layer3Split));
 l3SplitCtrl = fCustomColors.addColor(params, 'layer3Split').name('Кисть 3 (Орбита): Сплит').onChange(v => ribbons[2].setColors(params.layer3Color, v));
+l4ColCtrl = fCustomColors.addColor(params, 'layer4Color').name('Кисть 4: Основной').onChange(v => ribbons[3] && ribbons[3].setColors(v, params.layer4Split));
+l4SplitCtrl = fCustomColors.addColor(params, 'layer4Split').name('Кисть 4: Сплит').onChange(v => ribbons[3] && ribbons[3].setColors(params.layer4Color, v));
+l5ColCtrl = fCustomColors.addColor(params, 'layer5Color').name('Кисть 5: Основной').onChange(v => ribbons[4] && ribbons[4].setColors(v, params.layer5Split));
+l5SplitCtrl = fCustomColors.addColor(params, 'layer5Split').name('Кисть 5: Сплит').onChange(v => ribbons[4] && ribbons[4].setColors(params.layer5Color, v));
+l6ColCtrl = fCustomColors.addColor(params, 'layer6Color').name('Кисть 6: Основной').onChange(v => ribbons[5] && ribbons[5].setColors(v, params.layer6Split));
+l6SplitCtrl = fCustomColors.addColor(params, 'layer6Split').name('Кисть 6: Сплит').onChange(v => ribbons[5] && ribbons[5].setColors(params.layer6Color, v));
 fCustomColors.close();
 
 const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
@@ -1027,18 +1183,143 @@ const layerParams = {
   layer1: true,
   layer2: true,
   layer3: true,
+  layer4: true,
+  layer5: true,
+  layer6: true,
 };
 const layerConfigs = [
   { key: 'layer1', name: 'Кисть 1: Рубин / Янтарь' },
   { key: 'layer2', name: 'Кисть 2: Бирюза / Изумруд' },
   { key: 'layer3', name: 'Кисть 3: Фиолет / Коралл' },
+  { key: 'layer4', name: 'Кисть 4: Золото / Мандарин' },
+  { key: 'layer5', name: 'Кисть 5: Лазурь / Аквамарин' },
+  { key: 'layer6', name: 'Кисть 6: Маджента / Фуксия' },
 ];
 layerConfigs.forEach((cfg, idx) => {
   fLayers.add(layerParams, cfg.key).name(cfg.name).onChange(v => {
-    ribbons[idx].group.visible = v;
-    brushDebug.setRibbonVisible(idx, v);
+    const isGravity = (params.motionMode === 'gravity');
+    const activeLimit = isGravity ? params.gravityBrushCount : 3;
+    const shouldBeVisible = v && (idx < activeLimit);
+    ribbons[idx].group.visible = shouldBeVisible;
+    brushDebug.setRibbonVisible(idx, shouldBeVisible);
   });
 });
+
+// ── 🪐 Гравитационный режим (N-body орбиты) ──
+const fGravity = gui.addFolder('🪐 Гравитационный режим (N-body)');
+
+const motionModeOptions = {
+  '🪐 Гравитационный (4-6 кистей)': 'gravity',
+  '🌊 Классический (3 кисти)': 'classic'
+};
+
+const motionModeCtrl = fGravity.add(params, 'motionMode', motionModeOptions)
+  .name('Режим движения')
+  .onChange(() => {
+    syncMotionMode();
+    if (params.motionMode === 'gravity') {
+      fGravity.open();
+    }
+  });
+
+fGravity.add(params, 'gravityBrushCount', [4, 5, 6])
+  .name('Количество кистей')
+  .onChange(v => {
+    params.gravityBrushCount = parseInt(v, 10);
+    gravitySim.setBodyCount(params.gravityBrushCount);
+    syncMotionMode();
+  });
+
+fGravity.add(params, 'gravityG', 0.2, 3.5, 0.05)
+  .name('Гравитация G')
+  .onChange(v => {
+    gravitySim.G = v;
+  });
+
+fGravity.add(params, 'gravityCentralMass', 0.5, 8.0, 0.1)
+  .name('Масса ядра M')
+  .onChange(v => {
+    gravitySim.centralMass = v;
+  });
+
+fGravity.add(params, 'gravityNBody', 0.0, 2.0, 0.02)
+  .name('N-body притяжение')
+  .onChange(v => {
+    gravitySim.nBodyG = v;
+  });
+
+fGravity.add(params, 'gravityAssocDist', 0.05, 0.35, 0.01)
+  .name('Захват R_assoc')
+  .onChange(v => {
+    gravitySim.assocDistance = v;
+  });
+
+fGravity.add(params, 'gravitySlingshot', 0.5, 4.5, 0.1)
+  .name('Импульс сброса')
+  .onChange(v => {
+    gravitySim.slingshotPower = v;
+  });
+
+fGravity.add(params, 'gravityTidalSplit')
+  .name('Приливной сплит (Roche)')
+  .onChange(v => {
+    gravitySim.tidalBifurcationEnabled = v;
+    if (params.motionMode === 'gravity') {
+      ribbons.forEach(r => r.bifurcationEnabled = v);
+    }
+  });
+
+fGravity.add(params, 'gravitySpeed', 0.2, 2.5, 0.05)
+  .name('Скорость времени')
+  .onChange(v => {
+    gravitySim.timeScale = v;
+  });
+
+fGravity.add(params, 'gravityDamping', 0.0, 0.08, 0.005)
+  .name('Орбитальный баланс')
+  .onChange(v => {
+    gravitySim.damping = v;
+  });
+
+fGravity.add({
+  resetOrbits: () => {
+    gravitySim.resetAllOrbits();
+    ribbons.forEach(r => r.reset());
+  }
+}, 'resetOrbits').name('✨ Перезапуск орбит');
+
+function syncMotionMode() {
+  const isGravity = (params.motionMode === 'gravity');
+  const activeCount = isGravity ? params.gravityBrushCount : 3;
+
+  ribbons.forEach((ribbon, idx) => {
+    const isSlotActive = (idx < activeCount);
+    const shouldBeVisible = isSlotActive && (layerParams[`layer${idx + 1}`] !== false);
+    ribbon.group.visible = shouldBeVisible;
+    if (brushDebug) brushDebug.setRibbonVisible(idx, shouldBeVisible);
+
+    if (isGravity) {
+      ribbon.setAgent(ribbon._gravityAgent);
+      ribbon.randomSpeedEnabled = false;
+      ribbon.speedDriftEnabled = false;
+      ribbon.bifurcationEnabled = params.gravityTidalSplit;
+    } else {
+      ribbon.setAgent(ribbon._kinematicAgent);
+      ribbon.randomSpeedEnabled = params.randomSpeedMode;
+      ribbon.speedDriftEnabled = params.dynamicSpeedDrift;
+      ribbon.bifurcationEnabled = params.bifurcationEnabled;
+    }
+    ribbon.reset();
+  });
+
+  if (isGravity) {
+    gravitySim.setBodyCount(params.gravityBrushCount);
+    gravitySim.resetAllOrbits();
+  }
+
+  applyColorTheme(params.colorTheme);
+  updateAllInstances();
+}
 
 const fKaleido = gui.addFolder('Мандала / Симметрия');
 fKaleido.add(params, 'sectors', 2, 32, 1).name('Секторы симметрии').onChange(v => {
@@ -1062,6 +1343,7 @@ fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кист
 });
 fFish.add(params, 'boundaryRadius', 0.25, 0.70, 0.01).name('Радиус обитания').onChange(v => {
   ribbons.forEach(r => r.maxBoundaryRadius = v);
+  gravitySim.boundaryRadius = v;
 });
 const minTurnCtrl = fFish.add(params, 'minTurnRadius', 0.0, 0.5, 0.01).name('Мин. радиус поворота').onChange(v => {
   let effectiveRadius = v;
@@ -1348,6 +1630,7 @@ gui.onFinishChange(() => {
 
 // Restore saved settings on startup if present in localStorage
 loadSavedSettings(true);
+syncMotionMode();
 
 // Resize Handler: maintains aspect ratio for both display shader and debug camera
 function handleResize() {
@@ -1578,8 +1861,13 @@ function animate(rafTimestamp) {
 
   // 1. Update Fish Ribbons (Kinematics, wave, splitting on CPU)
   const tCpuStart = performance.now();
+  if (params.motionMode === 'gravity') {
+    gravitySim.update(elapsedTime, delta);
+  }
   ribbons.forEach(ribbon => {
-    ribbon.update(elapsedTime, delta);
+    if (ribbon.group.visible) {
+      ribbon.update(elapsedTime, delta);
+    }
   });
 
   // 1b. Update debug overlay (reads updated spine data)
@@ -1713,7 +2001,7 @@ function animate(rafTimestamp) {
       pixelRatio: window.devicePixelRatio,
       sectors: params.sectors,
       mirror: params.mirror,
-      bifurcatedCount: ribbons.filter(r => r.splitState !== 'CLOSED').length,
+      bifurcatedCount: ribbons.filter(r => r.group.visible && r.splitState !== 'CLOSED').length,
       isTabVisible: !document.hidden
     });
   }

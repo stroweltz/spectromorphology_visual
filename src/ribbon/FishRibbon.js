@@ -24,10 +24,20 @@ export class FishRibbon {
     this.pathRadius = options.pathRadius || 0.42;
 
     // ── OOP Component Composition ──
-    this.agent = new KinematicBrushAgent(options);
+    this.agent = options.agent || new KinematicBrushAgent(options);
     this.bifurcation = new BifurcationController(options);
     this.trail = new TrailHistory(this._segments, options, this.bifurcation.currentWidth);
     this.renderer = new RibbonMeshRenderer(this._segments, options);
+  }
+
+  /**
+   * Plugs in a custom steering agent (e.g. GravityBrushAgent or KinematicBrushAgent).
+   * @param {Object} agent
+   */
+  setAgent(agent) {
+    if (!agent || this.agent === agent) return;
+    this.agent = agent;
+    this.reset();
   }
 
   // ── Public Accessors for main.js, BrushDebugOverlay, and Audio Engine ──
@@ -306,8 +316,26 @@ export class FishRibbon {
     // 1. Advance Guide Agent Kinematics
     this.agent.update(time, clampedDelta);
 
+    // Gravitational Tidal Bifurcation (Roche-limit splitting during periastron encounters)
+    if (this.agent.tidalSplit !== undefined && this.bifurcation.bifurcationEnabled) {
+      if (this.agent.tidalSplit) {
+        if (this.bifurcation.state === 'CLOSED') {
+          this.triggerSplit(this.bifurcation.currentWidth, true);
+        }
+      } else if (this.bifurcation.state === 'SUSTAINED') {
+        this.bifurcation.state = 'CLOSING';
+      }
+    }
+
     // 2. Advance Thickness Breathing & Bifurcation State Machine
     this.bifurcation.update(time, clampedDelta, this.agent);
+
+    // Gravitational harmonic resonance pulse on ribbon thickness
+    if (this.agent.resonance && this.agent.resonance > 0.001) {
+      const pulseMult = 1.0 + this.agent.resonance * 0.45;
+      this.bifurcation.headWidthA = Math.min(this.bifurcation.maxWidth, this.bifurcation.headWidthA * pulseMult);
+      this.bifurcation.headWidthB = Math.min(this.bifurcation.maxWidth, this.bifurcation.headWidthB * pulseMult);
+    }
 
     // If split was just triggered (autonomously or forced), sync split trail
     if (this.bifurcation.justTriggeredSplit) {

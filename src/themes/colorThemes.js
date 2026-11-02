@@ -282,3 +282,63 @@ export const COLOR_THEMES = {
     ]
   }
 };
+
+/**
+ * Returns an array of layer color configs for N brushes (from 3 to 6).
+ * Layers beyond 3 are synthesized by cyclic harmonic interpolation across
+ * the theme's anchor palettes, ensuring 100% aesthetic coherence and vibrant saturation.
+ *
+ * @param {string|Object} themeOrKey
+ * @param {number} count - number of active brushes (3..6)
+ * @returns {Array<{color: string, splitColor: string, name: string}>}
+ */
+export function getThemeLayerColors(themeOrKey, count = 3) {
+  const theme = typeof themeOrKey === 'string' ? COLOR_THEMES[themeOrKey] : themeOrKey;
+  const fallback = COLOR_THEMES['🌌 Авторский Оригинал (Полночный Индиго)'];
+  const baseLayers = (theme && theme.layers && theme.layers.length >= 3) ? theme.layers : fallback.layers;
+
+  const N = Math.min(6, Math.max(1, count));
+  if (N <= 3) {
+    return baseLayers.slice(0, N);
+  }
+
+  const c0 = new THREE.Color(baseLayers[0].color);
+  const c1 = new THREE.Color(baseLayers[1].color);
+  const c2 = new THREE.Color(baseLayers[2].color);
+
+  const s0 = new THREE.Color(baseLayers[0].splitColor);
+  const s1 = new THREE.Color(baseLayers[1].splitColor);
+  const s2 = new THREE.Color(baseLayers[2].splitColor);
+
+  const hexOf = (c) => '#' + c.getHexString();
+  const lerpCol = (ca, cb, t) => hexOf(new THREE.Color().copy(ca).lerp(cb, t));
+
+  if (N === 4) {
+    return [
+      baseLayers[0],
+      { color: lerpCol(c0, c1, 0.5), splitColor: lerpCol(s0, s1, 0.5), name: 'Гармония 1-2' },
+      baseLayers[1],
+      baseLayers[2]
+    ];
+  }
+
+  if (N === 5) {
+    return [
+      baseLayers[0],
+      { color: lerpCol(c0, c1, 0.5), splitColor: lerpCol(s0, s1, 0.5), name: 'Гармония 1-2' },
+      baseLayers[1],
+      { color: lerpCol(c1, c2, 0.5), splitColor: lerpCol(s1, s2, 0.5), name: 'Гармония 2-3' },
+      baseLayers[2]
+    ];
+  }
+
+  // N === 6
+  return [
+    baseLayers[0],
+    { color: lerpCol(c0, c1, 0.5), splitColor: lerpCol(s0, s1, 0.5), name: 'Гармония 1-2' },
+    baseLayers[1],
+    { color: lerpCol(c1, c2, 0.5), splitColor: lerpCol(s1, s2, 0.5), name: 'Гармония 2-3' },
+    baseLayers[2],
+    { color: lerpCol(c2, c0, 0.5), splitColor: lerpCol(s2, s0, 0.5), name: 'Гармония 3-1' }
+  ];
+}
