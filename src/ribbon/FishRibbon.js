@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { KinematicBrushAgent } from './KinematicBrushAgent.js';
+import { OctilinearBrushAgent } from './grid/OctilinearBrushAgent.js';
 import { BifurcationController } from './BifurcationController.js';
 import { TrailHistory } from './TrailHistory.js';
 import { RibbonMeshRenderer } from './RibbonMeshRenderer.js';
@@ -9,7 +10,7 @@ import { RibbonMeshRenderer } from './RibbonMeshRenderer.js';
  * ----------
  * High-level coordinator (facade) for procedural fish ribbon brush strokes.
  * Orchestrates:
- *   1. KinematicBrushAgent   – autonomous steering, curvature physics, wander dynamics
+ *   1. Brush Agent           – autonomous steering (Kinematic or Octilinear Grid)
  *   2. BifurcationController – dynamic thickness breathing, center taper, twin-head split lifecycle
  *   3. TrailHistory          – fixed-distance immutable vertebrae spine & historical widths
  *   4. RibbonMeshRenderer    – Three.js instanced geometry, normal extrusion, vertex colors
@@ -23,11 +24,28 @@ export class FishRibbon {
     this.phaseOffset = options.phaseOffset || 0.0;
     this.pathRadius = options.pathRadius || 0.42;
 
-    // ── OOP Component Composition ──
-    this.agent = new KinematicBrushAgent(options);
+    // ── Motion Mode & OOP Kinematics Composition ──
+    this.motionMode = options.motionMode || 'classic'; // 'classic' | 'octilinear'
+    this.classicAgent = new KinematicBrushAgent(options);
+    this.octilinearAgent = new OctilinearBrushAgent(options);
+    this.agent = (this.motionMode === 'octilinear') ? this.octilinearAgent : this.classicAgent;
+
     this.bifurcation = new BifurcationController(options);
     this.trail = new TrailHistory(this._segments, options, this.bifurcation.currentWidth);
     this.renderer = new RibbonMeshRenderer(this._segments, options);
+  }
+
+  /**
+   * Dynamically switches motion mode ('classic' or 'octilinear') with live kinematic handoff.
+   * @param {'classic'|'octilinear'} mode
+   */
+  setMotionMode(mode) {
+    if (this.motionMode === mode) return;
+    this.motionMode = mode;
+    const oldAgent = this.agent;
+    const newAgent = (mode === 'octilinear') ? this.octilinearAgent : this.classicAgent;
+    newAgent.syncFrom(oldAgent);
+    this.agent = newAgent;
   }
 
   // ── Public Accessors for main.js, BrushDebugOverlay, and Audio Engine ──
@@ -143,40 +161,98 @@ export class FishRibbon {
   // ── Delegated Kinematics & Agent Properties ──
 
   get speed() { return this.agent.speed; }
-  set speed(v) { this.agent.speed = v; }
+  set speed(v) {
+    this.classicAgent.speed = v;
+    this.octilinearAgent.speed = v;
+  }
 
   get orbitSpeed() { return this.agent.orbitSpeed; }
-  set orbitSpeed(v) { this.agent.orbitSpeed = v; }
+  set orbitSpeed(v) {
+    this.classicAgent.orbitSpeed = v;
+    this.octilinearAgent.orbitSpeed = v;
+  }
 
   get maxBoundaryRadius() { return this.agent.maxBoundaryRadius; }
-  set maxBoundaryRadius(v) { this.agent.maxBoundaryRadius = v; }
+  set maxBoundaryRadius(v) {
+    this.classicAgent.maxBoundaryRadius = v;
+    this.octilinearAgent.maxBoundaryRadius = v;
+  }
 
   get minTurnRadius() { return this.agent.minTurnRadius; }
-  set minTurnRadius(v) { this.agent.minTurnRadius = v; }
+  set minTurnRadius(v) {
+    this.classicAgent.minTurnRadius = v;
+    this.octilinearAgent.minTurnRadius = v;
+  }
 
   get randomSpeedEnabled() { return this.agent.randomSpeedEnabled; }
-  set randomSpeedEnabled(v) { this.agent.randomSpeedEnabled = v; }
+  set randomSpeedEnabled(v) {
+    this.classicAgent.randomSpeedEnabled = v;
+    this.octilinearAgent.randomSpeedEnabled = v;
+  }
 
   get speedMultiplier() { return this.agent.speedMultiplier; }
-  set speedMultiplier(v) { this.agent.speedMultiplier = v; }
+  set speedMultiplier(v) {
+    this.classicAgent.speedMultiplier = v;
+    this.octilinearAgent.speedMultiplier = v;
+  }
 
   get speedDriftEnabled() { return this.agent.speedDriftEnabled; }
-  set speedDriftEnabled(v) { this.agent.speedDriftEnabled = v; }
+  set speedDriftEnabled(v) {
+    this.classicAgent.speedDriftEnabled = v;
+    this.octilinearAgent.speedDriftEnabled = v;
+  }
 
   get speedWanderIntensity() { return this.agent.speedWanderIntensity; }
-  set speedWanderIntensity(v) { this.agent.speedWanderIntensity = v; }
+  set speedWanderIntensity(v) {
+    this.classicAgent.speedWanderIntensity = v;
+    this.octilinearAgent.speedWanderIntensity = v;
+  }
 
   get speedWanderFreq() { return this.agent.speedWanderFreq; }
-  set speedWanderFreq(v) { this.agent.speedWanderFreq = v; }
+  set speedWanderFreq(v) {
+    this.classicAgent.speedWanderFreq = v;
+    this.octilinearAgent.speedWanderFreq = v;
+  }
 
   get audioSpeedMult() { return this.agent.audioSpeedMult; }
-  set audioSpeedMult(v) { this.agent.audioSpeedMult = v; }
+  set audioSpeedMult(v) {
+    this.classicAgent.audioSpeedMult = v;
+    this.octilinearAgent.audioSpeedMult = v;
+  }
 
   get audioSteerMult() { return this.agent.audioSteerMult; }
-  set audioSteerMult(v) { this.agent.audioSteerMult = v; }
+  set audioSteerMult(v) {
+    this.classicAgent.audioSteerMult = v;
+    this.octilinearAgent.audioSteerMult = v;
+  }
 
   get audioExtraAngular() { return this.agent.audioExtraAngular; }
-  set audioExtraAngular(v) { this.agent.audioExtraAngular = v; }
+  set audioExtraAngular(v) {
+    this.classicAgent.audioExtraAngular = v;
+    this.octilinearAgent.audioExtraAngular = v;
+  }
+
+  // ── Octilinear-Specific Properties ──
+
+  get filletRadius() { return this.octilinearAgent.filletRadius; }
+  set filletRadius(v) {
+    this.octilinearAgent.filletRadius = v;
+  }
+
+  get stepLength() { return this.octilinearAgent.stepLength; }
+  set stepLength(v) {
+    this.octilinearAgent.stepLength = v;
+  }
+
+  get turnAngleBalance() { return this.octilinearAgent.turnAngleBalance; }
+  set turnAngleBalance(v) {
+    this.octilinearAgent.turnAngleBalance = v;
+  }
+
+  get branchMode() { return this.octilinearAgent.branchMode; }
+  set branchMode(v) {
+    this.octilinearAgent.branchMode = v;
+  }
 
   // ── Delegated Trail & History Properties ──
 
@@ -265,7 +341,8 @@ export class FishRibbon {
    * Resets kinematics, history, and bifurcation state.
    */
   reset() {
-    this.agent.reset();
+    this.classicAgent.reset();
+    this.octilinearAgent.reset();
     this.bifurcation.reset();
     this.trail.reset(this.agent.pos, this.agent.headingAngle, this.trail.trailLength, this.bifurcation.currentWidth);
     this.renderer.splitMesh.visible = false;
@@ -308,6 +385,19 @@ export class FishRibbon {
 
     // 2. Advance Thickness Breathing & Bifurcation State Machine
     this.bifurcation.update(time, clampedDelta, this.agent);
+
+    // If active agent is octilinear, let it coordinate Head A and Head B positions
+    if (this.agent.isOctilinear) {
+      const halfSep = this.bifurcation.splitSeparation * 0.5;
+      this.agent.updateBifurcationHeads(
+        clampedDelta,
+        this.bifurcation.splitProgress,
+        this.bifurcation.state,
+        halfSep
+      );
+      this.bifurcation.headA.copy(this.agent.headA);
+      this.bifurcation.headB.copy(this.agent.headB);
+    }
 
     // If split was just triggered (autonomously or forced), sync split trail
     if (this.bifurcation.justTriggeredSplit) {

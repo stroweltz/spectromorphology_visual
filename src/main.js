@@ -205,6 +205,13 @@ ribbons.forEach((ribbon, index) => {
   // Stagger z-depth so layers overlap naturally
   ribbon.group.position.z = -index * 0.02;
   strokeScene.add(ribbon.group);
+
+  // Synchronize initial octilinear configuration
+  ribbon.filletRadius = params.gridFilletRadius;
+  ribbon.stepLength = params.gridStepLength;
+  ribbon.turnAngleBalance = params.gridTurnBalance;
+  ribbon.branchMode = params.gridBranchMode;
+  ribbon.setMotionMode(params.motionMode);
 });
 
 // 4. Main Display Scene & Fullscreen Kaleidoscope Quad
@@ -348,6 +355,13 @@ const params = {
   speedVariance: 6.5,           // Разброс случайных скоростей [0..10]
   dynamicSpeedDrift: true,      // Органический дрейф скорости во времени
   speedDriftIntensity: 5.5,     // Сила дрейфа скорости [0..10]
+
+  // Octilinear Filleted Motion (Линейно-диагональный режим со скруглёнными углами)
+  motionMode: 'classic',        // 'classic' (органика) | 'octilinear' (линейно-диагональный)
+  gridFilletRadius: 0.08,       // Радиус кругового переходного скругления углов R_fillet [0.02..0.20]
+  gridStepLength: 0.22,         // Длина шага прямого отрезка до поворота [0.05..0.50]
+  gridTurnBalance: 0.45,        // Баланс вероятности поворотов: 45° vs 90° [0..1]
+  gridBranchMode: 'fork',       // Режим ветвления Head B: 'fork' (развилка со скруглением) | 'parallel' (параллельные шины)
 
   // Canvas Persistence
   persistentCanvas: false,      // Накапливать рисунок на холсте (вечное рисование)
@@ -775,6 +789,15 @@ window.addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     toggleFullscreenZenMode();
   }
+  if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    const nextMode = (params.motionMode === 'octilinear') ? 'classic' : 'octilinear';
+    params.motionMode = nextMode;
+    if (typeof motionModeCtrl !== 'undefined') motionModeCtrl.setValue(nextMode);
+    ribbons.forEach(r => r.setMotionMode(nextMode));
+    if (nextMode === 'octilinear' && typeof fOctilinear !== 'undefined') fOctilinear.open();
+    showToast(nextMode === 'octilinear' ? '📐 Режим: Линейно-диагональный (Octilinear)' : '🌊 Режим: Классический (Органический)');
+  }
 });
 
 
@@ -1054,6 +1077,17 @@ fKaleido.add(params, 'zoom', 0.4, 2.5, 0.05).name('Масштаб (Zoom)').onCha
 });
 
 const fFish = gui.addFolder('Кинематика кисти и след');
+
+const motionModeCtrl = fFish.add(params, 'motionMode', {
+  '🌊 Классический (Органический)': 'classic',
+  '📐 Линейно-диагональный (Octilinear)': 'octilinear'
+}).name('Режим траектории').listen().onChange(v => {
+  ribbons.forEach(r => r.setMotionMode(v));
+  if (v === 'octilinear' && typeof fOctilinear !== 'undefined') {
+    fOctilinear.open();
+  }
+});
+
 fFish.add(params, 'motionSpeed', 0.2, 3.0, 0.1).name('Скорость движения').onChange(v => {
   ribbons.forEach(r => r.speed = v);
 });
@@ -1096,6 +1130,143 @@ fFish.add(params, 'waveAmplitude', 0.0, 10.0, 0.1).name('Амплитуда ви
 fFish.add(params, 'waveFrequency', 0.5, 8.0, 0.1).name('Частота синусоиды пути').onChange(v => {
   ribbons.forEach(r => r.waveFreq = v);
 });
+
+// ── Папка: Линейно-диагональный режим со скруглёнными углами (Octilinear Filleted Mode) ──
+const fOctilinear = gui.addFolder('📐 Линейно-диагональный режим (Octilinear)');
+
+fOctilinear.add(params, 'motionMode', {
+  '🌊 Классический (Органический)': 'classic',
+  '📐 Линейно-диагональный (Octilinear)': 'octilinear'
+}).name('Активный режим').listen().onChange(v => {
+  ribbons.forEach(r => r.setMotionMode(v));
+});
+
+const filletRadiusCtrl = fOctilinear.add(params, 'gridFilletRadius', 0.02, 0.20, 0.005)
+  .name('Радиус скругления (R_fillet)')
+  .listen()
+  .onChange(v => {
+    ribbons.forEach(r => r.filletRadius = v);
+  });
+
+const stepLengthCtrl = fOctilinear.add(params, 'gridStepLength', 0.05, 0.50, 0.01)
+  .name('Длина шага сетки')
+  .listen()
+  .onChange(v => {
+    ribbons.forEach(r => r.stepLength = v);
+  });
+
+const turnBalanceCtrl = fOctilinear.add(params, 'gridTurnBalance', 0.0, 1.0, 0.05)
+  .name('Баланс (45° ⟷ 90°)')
+  .listen()
+  .onChange(v => {
+    ribbons.forEach(r => r.turnAngleBalance = v);
+  });
+
+const branchModeCtrl = fOctilinear.add(params, 'gridBranchMode', {
+  '🔱 Развилка со скруглением': 'fork',
+  '🛤️ Параллельные шины': 'parallel'
+}).name('Ветвление Head B').listen().onChange(v => {
+  ribbons.forEach(r => r.branchMode = v);
+});
+
+// ── Пресеты эстетики Octilinear ──
+fOctilinear.add({
+  presetPCB: () => {
+    params.motionMode = 'octilinear';
+    params.gridFilletRadius = 0.05;
+    params.gridStepLength = 0.18;
+    params.gridTurnBalance = 0.50;
+    params.gridBranchMode = 'fork';
+    motionModeCtrl.setValue('octilinear');
+    filletRadiusCtrl.setValue(0.05);
+    stepLengthCtrl.setValue(0.18);
+    turnBalanceCtrl.setValue(0.50);
+    branchModeCtrl.setValue('fork');
+    ribbons.forEach(r => {
+      r.filletRadius = 0.05;
+      r.stepLength = 0.18;
+      r.turnAngleBalance = 0.50;
+      r.branchMode = 'fork';
+      r.setMotionMode('octilinear');
+    });
+    fOctilinear.open();
+    showToast('⚡ Пресет: Печатная плата (PCB)');
+  }
+}, 'presetPCB').name('⚡ Пресет: Печатная плата (PCB)');
+
+fOctilinear.add({
+  presetSubway: () => {
+    params.motionMode = 'octilinear';
+    params.gridFilletRadius = 0.12;
+    params.gridStepLength = 0.30;
+    params.gridTurnBalance = 0.35;
+    params.gridBranchMode = 'parallel';
+    motionModeCtrl.setValue('octilinear');
+    filletRadiusCtrl.setValue(0.12);
+    stepLengthCtrl.setValue(0.30);
+    turnBalanceCtrl.setValue(0.35);
+    branchModeCtrl.setValue('parallel');
+    ribbons.forEach(r => {
+      r.filletRadius = 0.12;
+      r.stepLength = 0.30;
+      r.turnAngleBalance = 0.35;
+      r.branchMode = 'parallel';
+      r.setMotionMode('octilinear');
+    });
+    fOctilinear.open();
+    showToast('🚇 Пресет: Схема метро (Subway Lines)');
+  }
+}, 'presetSubway').name('🚇 Пресет: Схема метро (Subway)');
+
+fOctilinear.add({
+  presetManhattan: () => {
+    params.motionMode = 'octilinear';
+    params.gridFilletRadius = 0.06;
+    params.gridStepLength = 0.24;
+    params.gridTurnBalance = 1.0;
+    params.gridBranchMode = 'fork';
+    motionModeCtrl.setValue('octilinear');
+    filletRadiusCtrl.setValue(0.06);
+    stepLengthCtrl.setValue(0.24);
+    turnBalanceCtrl.setValue(1.0);
+    branchModeCtrl.setValue('fork');
+    ribbons.forEach(r => {
+      r.filletRadius = 0.06;
+      r.stepLength = 0.24;
+      r.turnAngleBalance = 1.0;
+      r.branchMode = 'fork';
+      r.setMotionMode('octilinear');
+    });
+    fOctilinear.open();
+    showToast('🏙️ Пресет: Ортогональный Манхэттен (90°)');
+  }
+}, 'presetManhattan').name('🏙️ Пресет: Манхэттен (90°)');
+
+fOctilinear.add({
+  presetIsometric: () => {
+    params.motionMode = 'octilinear';
+    params.gridFilletRadius = 0.07;
+    params.gridStepLength = 0.20;
+    params.gridTurnBalance = 0.0;
+    params.gridBranchMode = 'fork';
+    motionModeCtrl.setValue('octilinear');
+    filletRadiusCtrl.setValue(0.07);
+    stepLengthCtrl.setValue(0.20);
+    turnBalanceCtrl.setValue(0.0);
+    branchModeCtrl.setValue('fork');
+    ribbons.forEach(r => {
+      r.filletRadius = 0.07;
+      r.stepLength = 0.20;
+      r.turnAngleBalance = 0.0;
+      r.branchMode = 'fork';
+      r.setMotionMode('octilinear');
+    });
+    fOctilinear.open();
+    showToast('✨ Пресет: Изометрия (45° Diagonal)');
+  }
+}, 'presetIsometric').name('✨ Пресет: Изометрия (45°)');
+
+fOctilinear.close();
 
 // Папка: Холст и рисование (накопление мазков)
 const fCanvas = gui.addFolder('🎨 Холст (накопление мазков)');
