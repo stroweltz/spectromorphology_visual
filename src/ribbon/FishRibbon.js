@@ -450,6 +450,12 @@ export class FishRibbon {
       this.agent.headingAngle
     );
 
+    // In Gravity and Octilinear modes, suppress fish swimming lateral undulation completely
+    if (this.agent.isGravity || this.agent.isOctilinear || this.motionMode === 'gravity' || this.motionMode === 'octilinear') {
+      this.trail.lateralOffsetsA.fill(0.0);
+      this.trail.lateralOffsetsB.fill(0.0);
+    }
+
     // 4. Update Three.js Ribbon Geometries & Attributes
     this.renderer.update(
       this.trail.spine,

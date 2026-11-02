@@ -309,12 +309,12 @@ const gravitySim = new GravitySimulation({
   bodyCount: 5,
   G: 1.25,
   centralMass: 3.2,
-  nBodyG: 0.45,
+  nBodyG: 0.0, // 0.0 = serene, stable Keplerian rosette orbits without multi-body chaos
   boundaryRadius: 0.58,
   timeScale: 1.0,
-  damping: 0.015,
+  damping: 0.0,
   assocDistance: 0.16,
-  slingshotPower: 2.0,
+  slingshotPower: 1.5,
   tidalBifurcation: true
 });
 
@@ -468,11 +468,11 @@ const params = {
   gravityBrushCount: 5,         // 4, 5, 6 кистей
   gravityG: 1.25,               // Гравитационная постоянная G [0.2 .. 3.5]
   gravityCentralMass: 3.2,      // Масса центрального аттрактора M [0.5 .. 8.0]
-  gravityNBody: 0.45,           // Взаимное N-body притяжение кистей [0.0 .. 2.0]
+  gravityNBody: 0.0,            // Взаимное N-body притяжение кистей [0.0 .. 1.0] (0 = чистые орбиты)
   gravityAssocDist: 0.16,       // Дистанция ассоциации / захвата R_assoc [0.05 .. 0.35]
-  gravitySlingshot: 2.0,        // Импульс сброса (slingshot boost) [0.5 .. 4.5]
+  gravitySlingshot: 1.5,        // Импульс сброса (slingshot boost) [0.5 .. 4.5]
   gravitySpeed: 1.0,            // Скорость орбитального времени [0.2 .. 2.5]
-  gravityDamping: 0.015,        // Орбитальный баланс и затухание [0.0 .. 0.08]
+  gravityDamping: 0.0,          // Орбитальное затухание [0.0 .. 0.08]
   gravityTidalSplit: true,      // Приливное расщепление (Tidal Bifurcation) в перицентре
 
   // Brush Motion & Trail Kinematics (Классический режим)
@@ -1256,19 +1256,19 @@ fGravity.add(params, 'gravityBrushCount', [4, 5, 6])
   });
 
 fGravity.add(params, 'gravityG', 0.2, 3.5, 0.05)
-  .name('Гравитация G')
+  .name('Гравитация G (скорость орбит)')
   .onChange(v => {
-    gravitySim.G = v;
+    gravitySim.setG(v);
   });
 
 fGravity.add(params, 'gravityCentralMass', 0.5, 8.0, 0.1)
   .name('Масса ядра M')
   .onChange(v => {
-    gravitySim.centralMass = v;
+    gravitySim.setCentralMass(v);
   });
 
-fGravity.add(params, 'gravityNBody', 0.0, 2.0, 0.02)
-  .name('N-body притяжение')
+fGravity.add(params, 'gravityNBody', 0.0, 1.0, 0.02)
+  .name('Взаимное N-body (0=чисто, >0=хаос)')
   .onChange(v => {
     gravitySim.nBodyG = v;
   });
@@ -1330,10 +1330,12 @@ function syncMotionMode(mode = params.motionMode) {
       ribbon.randomSpeedEnabled = false;
       ribbon.speedDriftEnabled = false;
       ribbon.bifurcationEnabled = params.gravityTidalSplit;
+      ribbon.waveAmp = 0.0;
     } else if (isOctilinear) {
       ribbon.setMotionMode('octilinear');
       ribbon.randomSpeedEnabled = false;
       ribbon.speedDriftEnabled = false;
+      ribbon.waveAmp = 0.0;
       ribbon.filletRadius = params.gridFilletRadius;
       ribbon.stepLength = params.gridStepLength;
       ribbon.turnAngleBalance = params.gridTurnBalance;
@@ -1344,6 +1346,7 @@ function syncMotionMode(mode = params.motionMode) {
       ribbon.randomSpeedEnabled = params.randomSpeedMode;
       ribbon.speedDriftEnabled = params.dynamicSpeedDrift;
       ribbon.bifurcationEnabled = params.bifurcationEnabled;
+      ribbon.waveAmp = params.waveAmplitude * 0.008;
     }
     ribbon.reset();
   });

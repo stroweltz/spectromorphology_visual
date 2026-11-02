@@ -235,7 +235,7 @@ export class BifurcationController {
 
     // 2. Spatial Sine Wave along motion path
     const spatialAngle = agent.pathDistance * (this.waveFreq * 5.0) + this.phaseOffset;
-    const waveOffset = (this.waveAmp > 0.0001 && !agent.isOctilinear) ? (this.waveAmp * Math.sin(spatialAngle)) : 0.0;
+    const waveOffset = (this.waveAmp > 0.0001 && !agent.isOctilinear && !agent.isGravity) ? (this.waveAmp * Math.sin(spatialAngle)) : 0.0;
 
     // 3. Twin heads calligraphic divergence along guide normal
     const S = this.splitProgress;

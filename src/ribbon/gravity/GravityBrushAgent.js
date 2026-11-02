@@ -43,6 +43,7 @@ export class GravityBrushAgent {
     this.audioSpeedMult = 1.0;
     this.audioSteerMult = 1.0;
     this.audioExtraAngular = 0.0;
+    this.isGravity = true;
 
     // Initial sync
     this.syncFromSimulation();

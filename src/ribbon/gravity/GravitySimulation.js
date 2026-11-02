@@ -6,16 +6,14 @@ import * as THREE from 'three';
  * Modular, zero-allocation N-body orbital physics engine for procedural Three.js ribbons.
  * Simulates 4, 5, or 6 gravitational bodies moving under:
  *   1. Plummer-softened central attractor at the origin (F_center = -GM * r / (r^2 + eps^2)^(3/2)).
- *   2. Soft core repulsion preventing collapse onto the central singularity.
- *   3. Mutual N-body Plummer-softened pairwise gravitation.
- *   4. Soft boundary localization (non-linear centripetal restoring bowl keeping bodies in the mandala).
- *   5. Adaptive orbital energy regulation (Keplerian target speed stabilization).
+ *   2. Smooth C^∞ centrifugal core barrier preventing collapse onto the central singularity.
+ *   3. Optional Mutual N-body gravitation (0.0 = pure stable Keplerian rosette orbits, >0 = multi-body interaction).
+ *   4. Smooth boundary localization (tangential gliding trap keeping bodies inside the mandala).
+ *   5. Adaptive orbital energy regulation with automatic velocity rescaling when G or M is adjusted.
  *   6. Dynamic Association & Dissociation mechanics:
- *      - Association: capture into a mutual binary orbit dance around common barycenter.
- *      - Harmonic resonance pulse modulating brush ribbon thickness.
- *      - Dissociation: slingshot boost ejection into high-eccentricity loops upon periastron passage.
- *   7. Tidal Bifurcation (Roche / periastron splitting):
- *      - Triggers twin-head ribbon separation during close encounters / periastron passages.
+ *      - Association: capture into resonance pairing with smooth harmonic thickness pulse.
+ *      - Dissociation: smooth periastron slingshot boost into high-eccentricity loops without velocity jumps.
+ *   7. Tidal Bifurcation: Roche-limit ribbon splitting during periastron passages.
  *
  * Performance guarantee: 0 allocations in the update loop (all typed arrays and scratchpads preallocated).
  */
@@ -34,27 +32,20 @@ export class GravitySimulation {
     this.G = options.G ?? 1.25;                         // Gravitational constant
     this.centralMass = options.centralMass ?? 3.2;       // Central attractor mass M
     this.softening = options.softening ?? 0.09;         // Plummer softening eps
-    this.softeningSq = this.softening * this.softening;
-    this.coreRadius = 0.06;                             // Minimum core radius (prevents singularity collapse)
-    this.coreStiffness = 35.0;
+    this.coreSoftening = 0.085;                         // Core barrier softening radius
+    this.coreBarrierStrength = 0.088;                   // Centrifugal barrier coefficient
 
-    this.nBodyG = options.nBodyG ?? 0.45;               // Mutual N-body coupling strength
-    this.nBodySoftening = options.nBodySoftening ?? 0.08;
-    this.nBodySofteningSq = this.nBodySoftening * this.nBodySoftening;
+    // Mutual N-body coupling strength (0.0 = stable serene Keplerian rosette orbits)
+    this.nBodyG = options.nBodyG ?? 0.0;
+    this.nBodySoftening = options.nBodySoftening ?? 0.10;
 
-    this.boundaryRadius = options.boundaryRadius ?? 0.62; // Mandala perimeter
-    this.boundaryStiffness = options.boundaryStiffness ?? 24.0;
-    this.boundaryDamping = 8.0;
-
+    this.boundaryRadius = options.boundaryRadius ?? 0.58; // Mandala perimeter
     this.timeScale = options.timeScale ?? 1.0;
-    this.energyBalance = options.energyBalance ?? 0.35; // Adaptive Keplerian injection/drag
-    this.damping = options.damping ?? 0.015;
+    this.damping = options.damping ?? 0.0;               // Conservative by default
 
     // Association & Dissociation parameters
     this.assocDistance = options.assocDistance ?? 0.16; // R_assoc critical distance
-    this.slingshotPower = options.slingshotPower ?? 2.0; // Boost upon dissociation
-    this.binaryOrbitTorque = 1.4;                       // Mutual spin torque during pairing
-    this.maxAssocTime = 2.0;                            // Max binary dance duration before slingshot
+    this.slingshotPower = options.slingshotPower ?? 1.5; // Boost upon dissociation
     this.tidalBifurcationEnabled = options.tidalBifurcation ?? true;
 
     // ── Preallocated Typed Arrays (Zero Allocations Per Frame) ──
@@ -74,13 +65,6 @@ export class GravitySimulation {
     this.pairActive = new Uint8Array(pairCount);
     this.pairAssocTime = new Float32Array(pairCount);
     this.pairCooldown = new Float32Array(pairCount);
-    this.pairPrevDist = new Float32Array(pairCount);
-
-    // Scratchpad variables for inner loops (0 GC)
-    this._dx = 0;
-    this._dy = 0;
-    this._dist = 0;
-    this._distSq = 0;
 
     // Initialize mass distribution and initial orbital states
     this.initDefaultMasses();
@@ -88,14 +72,51 @@ export class GravitySimulation {
   }
 
   /**
-   * Sets up individual body masses with subtle organic variations.
+   * Sets up individual body masses.
    */
   initDefaultMasses() {
-    // Masses vary subtly around 1.0 to break perfect artificial symmetry
-    const baseMasses = [1.05, 0.95, 1.10, 0.90, 1.02, 0.98];
+    const baseMasses = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
     for (let i = 0; i < MAX_GRAVITY_BODIES; i++) {
       this.mass[i] = baseMasses[i] || 1.0;
     }
+  }
+
+  /**
+   * Dynamically rescales existing orbital velocities to maintain stable orbit shapes
+   * when G or M is modified via GUI.
+   * @param {number} ratio
+   * @private
+   */
+  _rescaleVelocities(ratio) {
+    if (ratio > 0.02 && ratio < 50.0 && Math.abs(ratio - 1.0) > 0.001) {
+      for (let i = 0; i < this.bodyCount; i++) {
+        this.vel[i * 2 + 0] *= ratio;
+        this.vel[i * 2 + 1] *= ratio;
+        this.speed[i] *= ratio;
+      }
+    }
+  }
+
+  /**
+   * Safe setter for G that maintains orbital balance.
+   * @param {number} newG
+   */
+  setG(newG) {
+    const oldGM = Math.max(0.0001, this.G * this.centralMass);
+    this.G = Math.max(0.05, newG);
+    const newGM = Math.max(0.0001, this.G * this.centralMass);
+    this._rescaleVelocities(Math.sqrt(newGM / oldGM));
+  }
+
+  /**
+   * Safe setter for central mass that maintains orbital balance.
+   * @param {number} newM
+   */
+  setCentralMass(newM) {
+    const oldGM = Math.max(0.0001, this.G * this.centralMass);
+    this.centralMass = Math.max(0.05, newM);
+    const newGM = Math.max(0.0001, this.G * this.centralMass);
+    this._rescaleVelocities(Math.sqrt(newGM / oldGM));
   }
 
   /**
@@ -112,10 +133,12 @@ export class GravitySimulation {
 
   /**
    * Resets all bodies to balanced, majestic elliptical Keplerian orbits.
+   * All bodies co-rotate with harmonious radii and slight eccentricity to prevent head-on crashes.
    */
   resetAllOrbits() {
     const N = this.bodyCount;
     const epsSq = this.softening * this.softening;
+    const GM = Math.max(0.01, this.G * this.centralMass);
 
     for (let i = 0; i < MAX_GRAVITY_BODIES; i++) {
       this.acc[i * 2 + 0] = 0;
@@ -126,9 +149,10 @@ export class GravitySimulation {
 
       if (i < N) {
         // Multi-tier orbital radii: distributing bodies between inner, mid, and outer shells
+        // Radius range roughly 0.22 .. 0.50 inside 0.58 boundary
         const tier = i % 3;
-        const baseRadius = 0.28 + tier * 0.12 + (i / N) * 0.06;
-        const angle = (i / N) * Math.PI * 2 + (tier * 0.4);
+        const baseRadius = 0.22 + tier * 0.11 + (i / N) * 0.05;
+        const angle = (i / N) * Math.PI * 2.0;
 
         const x = Math.cos(angle) * baseRadius;
         const y = Math.sin(angle) * baseRadius;
@@ -137,24 +161,13 @@ export class GravitySimulation {
 
         // Circular velocity v_circ = sqrt(G * M * r^2 / (r^2 + eps^2)^(3/2))
         const rSq = x * x + y * y;
-        const r = Math.sqrt(rSq);
         const denom = Math.pow(rSq + epsSq, 1.5);
-        const vCirc = Math.sqrt(Math.max(0.01, (this.G * this.centralMass * rSq) / denom));
+        const vCirc = Math.sqrt(Math.max(0.01, (GM * rSq) / denom));
 
-        // Choreographed prograde vs eccentric velocities
-        // Body 0, 1, 2 co-rotate; one body (e.g., body 3 or last body) has high eccentricity for slingshots
-        let e = 0.25;
-        let dir = 1.0;
-        if (i === 3 && N >= 5) {
-          // Counter-rotating body creates dramatic high-speed close encounters
-          dir = -0.92;
-          e = 0.35;
-        } else if (i % 2 === 1) {
-          e = 0.38;
-        }
-
-        const vx = -Math.sin(angle) * vCirc * (1.0 + e) * dir;
-        const vy =  Math.cos(angle) * vCirc * (1.0 - e * 0.5) * dir;
+        // Mild eccentricity (0.15 .. 0.30) produces majestic precessing rosette loops
+        const ecc = 0.16 + (i % 2) * 0.12;
+        const vx = -Math.sin(angle) * vCirc * (1.0 + ecc * 0.5);
+        const vy =  Math.cos(angle) * vCirc * (1.0 - ecc * 0.5);
 
         this.vel[i * 2 + 0] = vx;
         this.vel[i * 2 + 1] = vy;
@@ -177,7 +190,6 @@ export class GravitySimulation {
     this.pairActive.fill(0);
     this.pairAssocTime.fill(0);
     this.pairCooldown.fill(0);
-    this.pairPrevDist.fill(999.0);
   }
 
   /**
@@ -188,19 +200,25 @@ export class GravitySimulation {
     if (i < 0 || i >= this.bodyCount) return;
     const N = this.bodyCount;
     const tier = i % 3;
-    const baseRadius = 0.28 + tier * 0.12;
-    const angle = (i / N) * Math.PI * 2;
+    const baseRadius = 0.24 + tier * 0.11;
+    const angle = (i / N) * Math.PI * 2.0;
+    const GM = Math.max(0.01, this.G * this.centralMass);
+    const epsSq = this.softening * this.softening;
+    const rSq = baseRadius * baseRadius;
+    const denom = Math.pow(rSq + epsSq, 1.5);
+    const vCirc = Math.sqrt(Math.max(0.01, (GM * rSq) / denom));
+
     this.pos[i * 2 + 0] = Math.cos(angle) * baseRadius;
     this.pos[i * 2 + 1] = Math.sin(angle) * baseRadius;
-    this.vel[i * 2 + 0] = -Math.sin(angle) * 0.8;
-    this.vel[i * 2 + 1] =  Math.cos(angle) * 0.8;
-    this.speed[i] = 0.8;
+    this.vel[i * 2 + 0] = -Math.sin(angle) * vCirc;
+    this.vel[i * 2 + 1] =  Math.cos(angle) * vCirc;
+    this.speed[i] = vCirc;
     this.heading[i] = Math.atan2(this.vel[i * 2 + 1], this.vel[i * 2 + 0]);
   }
 
   /**
    * Main simulation step.
-   * Uses Symplectic Euler integration for long-term orbital energy conservation.
+   * Uses Symplectic Euler integration with 2 sub-steps for smooth ballistic orbits.
    * @param {number} time - elapsed real time in seconds
    * @param {number} dt - delta time in seconds
    */
@@ -208,8 +226,9 @@ export class GravitySimulation {
     const rawDt = Math.min(Math.max(dt || 0.016, 0.001), 0.05);
     const effDt = rawDt * this.timeScale;
 
-    // Use 2 sub-steps if dt is large to guarantee numerical precision and prevent tunneling
-    const subSteps = (effDt > 0.02) ? 2 : 1;
+    // 2 sub-steps guarantee smooth, vibration-free integration
+    const effSpeed = Math.sqrt(Math.max(0.1, this.G * this.centralMass));
+    const subSteps = Math.max(2, Math.min(8, Math.ceil(effSpeed * 1.2)));
     const subDt = effDt / subSteps;
 
     for (let s = 0; s < subSteps; s++) {
@@ -228,15 +247,14 @@ export class GravitySimulation {
     const GM = this.G * this.centralMass;
     const Gnb = this.nBodyG;
     const rBound = this.boundaryRadius;
-    const kBound = this.boundaryStiffness;
-    const cBound = this.boundaryDamping;
     const rAssoc = this.assocDistance;
-    const slingshotPwr = this.slingshotPower;
+    const coreEpsSq = this.coreSoftening * this.coreSoftening;
+    const kBarrier = this.coreBarrierStrength * GM;
 
     // ── 0. Decay Cooldowns and Resonance Pulses ──
     for (let i = 0; i < N; i++) {
-      this.resonance[i] *= Math.max(0.0, 1.0 - dt * 2.8);
-      this.tidalSplit[i] = 0; // Will be set by close encounters below
+      this.resonance[i] *= Math.max(0.0, 1.0 - dt * 2.2);
+      this.tidalSplit[i] = 0;
     }
 
     const pairLen = MAX_GRAVITY_BODIES * MAX_GRAVITY_BODIES;
@@ -252,7 +270,7 @@ export class GravitySimulation {
       this.acc[i * 2 + 1] = 0.0;
     }
 
-    // ── 2. Central Attractor & Core Repulsion ──
+    // ── 2. Central Attractor & C^∞ Smooth Centrifugal Core Barrier ──
     for (let i = 0; i < N; i++) {
       const px = this.pos[i * 2 + 0];
       const py = this.pos[i * 2 + 1];
@@ -260,45 +278,42 @@ export class GravitySimulation {
       const r = Math.sqrt(rSq);
 
       if (r > 0.0001) {
-        // Plummer central attraction
+        // A) Plummer central attraction: F_attract = -GM * r / (r^2 + eps^2)^(3/2)
         const denom = Math.pow(rSq + epsSq, 1.5);
-        const aCenter = -GM / denom;
-        this.acc[i * 2 + 0] += px * aCenter;
-        this.acc[i * 2 + 1] += py * aCenter;
+        const aPlummer = -GM / denom;
 
-        // Core softening repulsion (keeps the very center open like an eye)
-        if (r < this.coreRadius) {
-          const coreExcess = (this.coreRadius - r) / this.coreRadius;
-          const aCore = this.coreStiffness * coreExcess * (1.0 / r);
-          this.acc[i * 2 + 0] += px * aCore;
-          this.acc[i * 2 + 1] += py * aCore;
-        }
+        // B) Analytic C^∞ Centrifugal Repulsion Barrier: F_repulse = +kBarrier * r / (r^2 + coreEps^2)^2
+        // Naturally bends plunging bodies around the core into a graceful hyperbolic loop with 0 vibration!
+        const coreDenom = Math.pow(rSq + coreEpsSq, 2.0);
+        const aCore = kBarrier / coreDenom;
 
-        // Central periastron tidal trigger
-        if (this.tidalBifurcationEnabled && r < 0.11) {
+        const aNet = aPlummer + aCore;
+        this.acc[i * 2 + 0] += px * aNet;
+        this.acc[i * 2 + 1] += py * aNet;
+
+        // Periastron tidal bifurcation trigger (active only near the core periastron loop)
+        if (this.tidalBifurcationEnabled && r < 0.12) {
           this.tidalSplit[i] = 1;
         }
       }
     }
 
-    // ── 3. Mutual N-Body Gravitation & Association / Slingshot ──
-    for (let i = 0; i < N; i++) {
-      const pxi = this.pos[i * 2 + 0];
-      const pyi = this.pos[i * 2 + 1];
-      const mi = this.mass[i];
+    // ── 3. Mutual N-Body Gravitation (if enabled) & Association / Slingshot ──
+    if (Gnb > 0.0001) {
+      for (let i = 0; i < N; i++) {
+        const pxi = this.pos[i * 2 + 0];
+        const pyi = this.pos[i * 2 + 1];
+        const mi = this.mass[i];
 
-      for (let j = i + 1; j < N; j++) {
-        const pxj = this.pos[j * 2 + 0];
-        const pyj = this.pos[j * 2 + 1];
-        const mj = this.mass[j];
+        for (let j = i + 1; j < N; j++) {
+          const pxj = this.pos[j * 2 + 0];
+          const pyj = this.pos[j * 2 + 1];
+          const mj = this.mass[j];
 
-        const dx = pxj - pxi;
-        const dy = pyj - pyi;
-        const distSq = dx * dx + dy * dy;
-        const dist = Math.sqrt(distSq);
+          const dx = pxj - pxi;
+          const dy = pyj - pyi;
+          const distSq = dx * dx + dy * dy;
 
-        // Mutual Plummer attraction
-        if (Gnb > 0.001) {
           const nbDenom = Math.pow(distSq + nbEpsSq, 1.5);
           const fMutual = Gnb / nbDenom;
 
@@ -308,105 +323,48 @@ export class GravitySimulation {
           this.acc[j * 2 + 0] -= dx * (fMutual * mi);
           this.acc[j * 2 + 1] -= dy * (fMutual * mi);
         }
+      }
+    }
 
-        // ── Association & Dissociation State Machine ──
-        const pairIdx = i * MAX_GRAVITY_BODIES + j;
-        const pairRev = j * MAX_GRAVITY_BODIES + i;
-        const isCooldown = this.pairCooldown[pairIdx] > 0.0;
-        const prevDist = this.pairPrevDist[pairIdx];
-        this.pairPrevDist[pairIdx] = dist;
+    // ── 3b. Association Proximity & Smooth Tidal Resonance ──
+    for (let i = 0; i < N; i++) {
+      const pxi = this.pos[i * 2 + 0];
+      const pyi = this.pos[i * 2 + 1];
 
-        if (dist < rAssoc && !isCooldown) {
-          // Association: Capture into temporary binary orbital dance!
-          this.pairActive[pairIdx] = 1;
-          this.pairActive[pairRev] = 1;
-          this.pairAssocTime[pairIdx] += dt;
+      for (let j = i + 1; j < N; j++) {
+        const pxj = this.pos[j * 2 + 0];
+        const pyj = this.pos[j * 2 + 1];
+        const dx = pxj - pxi;
+        const dy = pyj - pyi;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq);
 
-          const proximityNorm = Math.max(0.0, 1.0 - dist / rAssoc);
-          // Visual resonance pulse on ribbon thickness
-          this.resonance[i] = Math.max(this.resonance[i], proximityNorm);
-          this.resonance[j] = Math.max(this.resonance[j], proximityNorm);
+        if (dist < rAssoc) {
+          const proximity = Math.max(0.0, 1.0 - dist / rAssoc);
+          // Visual harmonic resonance thickness pulse (continuous and smooth)
+          this.resonance[i] = Math.max(this.resonance[i], proximity);
+          this.resonance[j] = Math.max(this.resonance[j], proximity);
 
-          // Tidal splitting trigger during close gravitational encounter
-          if (this.tidalBifurcationEnabled && dist < rAssoc * 0.58) {
+          if (this.tidalBifurcationEnabled && dist < rAssoc * 0.5) {
             this.tidalSplit[i] = 1;
             this.tidalSplit[j] = 1;
           }
 
-          // Perpendicular binary spin torque (whirl around common barycenter)
-          if (dist > 0.001) {
-            const invDist = 1.0 / dist;
-            const perpX = -dy * invDist;
-            const perpY =  dx * invDist;
-            const torque = this.binaryOrbitTorque * proximityNorm;
-
-            this.acc[i * 2 + 0] += perpX * torque;
-            this.acc[i * 2 + 1] += perpY * torque;
-
-            this.acc[j * 2 + 0] -= perpX * torque;
-            this.acc[j * 2 + 1] -= perpY * torque;
+          // Smooth tangential slingshot acceleration along current flight path (0 velocity jumps!)
+          if (this.slingshotPower > 0.01) {
+            const spdI = this.speed[i] || 0.001;
+            const spdJ = this.speed[j] || 0.001;
+            const boostA = this.slingshotPower * 0.45 * proximity;
+            this.acc[i * 2 + 0] += (this.vel[i * 2 + 0] / spdI) * boostA;
+            this.acc[i * 2 + 1] += (this.vel[i * 2 + 1] / spdI) * boostA;
+            this.acc[j * 2 + 0] += (this.vel[j * 2 + 0] / spdJ) * boostA;
+            this.acc[j * 2 + 1] += (this.vel[j * 2 + 1] / spdJ) * boostA;
           }
-
-          // Check for Dissociation / Slingshot Ejection
-          // Occurs when:
-          // 1. Pair has danced for maxAssocTime, OR
-          // 2. Relative speed exceeds slingshot threshold, OR
-          // 3. Passing periastron (distance just started increasing after deep close encounter)
-          const vxi = this.vel[i * 2 + 0];
-          const vyi = this.vel[i * 2 + 1];
-          const vxj = this.vel[j * 2 + 0];
-          const vyj = this.vel[j * 2 + 1];
-          const relVx = vxj - vxi;
-          const relVy = vyj - vyi;
-          const relSpeedSq = relVx * relVx + relVy * relVy;
-
-          const isPeriastronPass = (dist > prevDist && dist < rAssoc * 0.7 && this.pairAssocTime[pairIdx] > 0.35);
-          const isTimeout = this.pairAssocTime[pairIdx] >= this.maxAssocTime;
-          const isHighVelocityFlyby = (relSpeedSq > 3.8 && dist < rAssoc * 0.65);
-
-          if (isPeriastronPass || isTimeout || isHighVelocityFlyby) {
-            // ── Dissociation: Slingshot Boost! ──
-            const spdI = Math.sqrt(vxi * vxi + vyi * vyi) || 0.001;
-            const spdJ = Math.sqrt(vxj * vxj + vyj * vyj) || 0.001;
-            const boostVal = slingshotPwr * 0.38;
-
-            // Boost in instantaneous forward heading
-            this.vel[i * 2 + 0] += (vxi / spdI) * boostVal;
-            this.vel[i * 2 + 1] += (vyi / spdI) * boostVal;
-            this.vel[j * 2 + 0] += (vxj / spdJ) * boostVal;
-            this.vel[j * 2 + 1] += (vyj / spdJ) * boostVal;
-
-            // Radial separation impulse away from partner
-            if (dist > 0.001) {
-              const sepBoost = boostVal * 0.28;
-              this.vel[i * 2 + 0] -= (dx / dist) * sepBoost;
-              this.vel[i * 2 + 1] -= (dy / dist) * sepBoost;
-              this.vel[j * 2 + 0] += (dx / dist) * sepBoost;
-              this.vel[j * 2 + 1] += (dy / dist) * sepBoost;
-            }
-
-            // Visual slingshot flash
-            this.resonance[i] = 1.0;
-            this.resonance[j] = 1.0;
-
-            // Reset pair and put into cooldown (2.5 - 4.0s)
-            this.pairActive[pairIdx] = 0;
-            this.pairActive[pairRev] = 0;
-            this.pairAssocTime[pairIdx] = 0.0;
-            const cd = 2.4 + (i + j) * 0.35;
-            this.pairCooldown[pairIdx] = cd;
-            this.pairCooldown[pairRev] = cd;
-          }
-        } else {
-          // No longer close
-          this.pairActive[pairIdx] = 0;
-          this.pairActive[pairRev] = 0;
-          this.pairAssocTime[pairIdx] = 0.0;
         }
       }
     }
 
-    // ── 4. Soft Boundary Restoring Force (Centripetal Mandala Trap) ──
+    // ── 4. Smooth Tangential Perimeter Gliding Trap ──
     for (let i = 0; i < N; i++) {
       const px = this.pos[i * 2 + 0];
       const py = this.pos[i * 2 + 1];
@@ -415,63 +373,71 @@ export class GravitySimulation {
       const r = Math.sqrt(px * px + py * py);
 
       if (r > rBound) {
-        const excess = (r - rBound);
-        const invR = 1.0 / r;
+        const excess = (r - rBound) / rBound;
+        const invR = 1.0 / Math.max(0.0001, r);
         const nx = px * invR;
         const ny = py * invR;
 
-        // Progressive restoring spring force
-        const fRestoring = kBound * (excess + excess * excess * 4.5);
-        this.acc[i * 2 + 0] -= nx * fRestoring;
-        this.acc[i * 2 + 1] -= ny * fRestoring;
+        // Adaptive inward restoring force scaled with GM
+        const aBound = (18.0 + GM * 6.0) * (excess + excess * excess * 4.0);
+        this.acc[i * 2 + 0] -= nx * aBound;
+        this.acc[i * 2 + 1] -= ny * aBound;
 
-        // Radial outward damping (prevents bouncing out)
+        // Smooth tangential redirection: rotate outward velocity along the circumference
         const vRadial = vx * nx + vy * ny;
         if (vRadial > 0.0) {
-          const fDamp = cBound * vRadial;
-          this.acc[i * 2 + 0] -= nx * fDamp;
-          this.acc[i * 2 + 1] -= ny * fDamp;
+          const bendFactor = Math.min(1.0, dt * 14.0 * (1.0 + excess));
+          this.vel[i * 2 + 0] -= nx * (vRadial * bendFactor);
+          this.vel[i * 2 + 1] -= ny * (vRadial * bendFactor);
         }
       }
     }
 
-    // ── 5. Adaptive Orbital Energy Regulation (Keplerian Stabilization) ──
+    // ── 5. Continuous Keplerian Speed Governor ──
+    // Keeps bodies in stable bound orbits for ANY G and M values without collapse or flyaway
     for (let i = 0; i < N; i++) {
       const px = this.pos[i * 2 + 0];
       const py = this.pos[i * 2 + 1];
       const vx = this.vel[i * 2 + 0];
       const vy = this.vel[i * 2 + 1];
-      const vSq = vx * vx + vy * vy;
-      const v = Math.sqrt(vSq);
+      const v = Math.sqrt(vx * vx + vy * vy);
       const rSq = px * px + py * py;
       const r = Math.sqrt(rSq);
+      const denom = Math.pow(rSq + epsSq, 1.5);
+      const vKepler = Math.sqrt(Math.max(0.01, (GM * rSq) / denom));
 
-      if (v > 0.0001 && r > 0.0001) {
-        // Ideal circular Keplerian speed at this radius
-        const denom = Math.pow(rSq + epsSq, 1.5);
-        const vKepler = Math.sqrt(Math.max(0.01, (GM * rSq) / denom));
+      // Healthy orbital speed window [0.55 .. 1.45] of circular speed allows high eccentricity loops
+      const minV = vKepler * 0.55;
+      const maxV = vKepler * 1.45;
 
-        const minV = vKepler * 0.42;
-        const maxV = vKepler * 2.2;
-
+      if (v > 0.0001) {
         const invV = 1.0 / v;
         const tx = vx * invV;
         const ty = vy * invV;
 
-        if (v < minV) {
-          // Gentle speed injection along velocity vector
-          const inject = (minV - v) * this.energyBalance * 2.2;
-          this.acc[i * 2 + 0] += tx * inject;
-          this.acc[i * 2 + 1] += ty * inject;
-        } else if (v > maxV) {
-          // Gentle aerodynamic drag
-          const drag = (v - maxV) * (this.energyBalance * 1.8 + this.damping);
-          this.acc[i * 2 + 0] -= tx * drag;
-          this.acc[i * 2 + 1] -= ty * drag;
-        } else if (this.damping > 0.0001) {
-          // Ambient viscous damping
-          this.acc[i * 2 + 0] -= vx * this.damping;
-          this.acc[i * 2 + 1] -= vy * this.damping;
+        // Angular momentum & orbital shape governor
+        const invR = 1.0 / Math.max(0.0001, r);
+        const nx = px * invR;
+        const ny = py * invR;
+        const txNorm = -ny; // Tangent unit vector along co-rotation
+        const tyNorm =  nx;
+        const vTan = vx * txNorm + vy * tyNorm;
+        const vRad = vx * nx + vy * ny;
+
+        // Maintain healthy angular momentum: ensure tangential velocity stays above minimum threshold
+        const minTan = vKepler * 0.70;
+        if (vTan < minTan) {
+          const boost = (minTan - vTan) * 1.8;
+          this.acc[i * 2 + 0] += txNorm * boost;
+          this.acc[i * 2 + 1] += tyNorm * boost;
+        }
+
+        // Damp excess radial velocity (prevents plunging into the core or flying out to the boundary)
+        const maxRad = vKepler * 0.75;
+        if (Math.abs(vRad) > maxRad) {
+          const dampRad = (vRad - Math.sign(vRad) * maxRad) * 1.2;
+          this.acc[i * 2 + 0] -= nx * dampRad;
+          this.acc[i * 2 + 1] -= ny * dampRad;
         }
       }
     }
@@ -481,13 +447,13 @@ export class GravitySimulation {
       const ax = this.acc[i * 2 + 0];
       const ay = this.acc[i * 2 + 1];
 
-      // Update velocity
+      // Update velocity (v = v + a * dt)
       let vx = this.vel[i * 2 + 0] + ax * dt;
       let vy = this.vel[i * 2 + 1] + ay * dt;
 
-      // Absolute safety speed clamp (prevents teleportation)
+      // Safe speed cap (maximum 3.2 to prevent visual tunneling)
       const curSpeed = Math.sqrt(vx * vx + vy * vy);
-      const maxAllowedSpeed = 3.8;
+      const maxAllowedSpeed = 3.2;
       if (curSpeed > maxAllowedSpeed) {
         const factor = maxAllowedSpeed / curSpeed;
         vx *= factor;
@@ -498,15 +464,14 @@ export class GravitySimulation {
       this.vel[i * 2 + 1] = vy;
       this.speed[i] = Math.sqrt(vx * vx + vy * vy);
 
-      // Update position (Symplectic Euler: uses updated velocity!)
+      // Update position (p = p + v * dt)
       this.pos[i * 2 + 0] += vx * dt;
       this.pos[i * 2 + 1] += vy * dt;
 
-      // ── 7. Kinematic Angle & Curvature Calculations ──
+      // ── 7. Kinematic Heading Angle & Curvature ──
       const prevHeading = this.heading[i];
       let newHeading = Math.atan2(vy, vx);
 
-      // Wrap heading difference cleanly across [-PI, PI]
       let dTheta = newHeading - prevHeading;
       while (dTheta > Math.PI) dTheta -= Math.PI * 2;
       while (dTheta < -Math.PI) dTheta += Math.PI * 2;
