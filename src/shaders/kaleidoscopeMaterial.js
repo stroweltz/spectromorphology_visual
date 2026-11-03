@@ -25,7 +25,7 @@ export function createKaleidoscopeMaterial() {
       uBlob4: { value: new THREE.Vector2() },
       uBreath: { value: 1.0 },
       uVignette: { value: 0.75 },
-      uDropShadow: { value: 0.50 }, // 3D ambient shadow cast by mandala onto background
+      uDropShadow: { value: 0.0 }, // 3D ambient shadow cast by mandala onto background
       uAspect: { value: 1.0 },
       uFilmGrain: { value: 0.0 },
       uTime: { value: 0.0 }
@@ -196,9 +196,7 @@ export function createKaleidoscopeMaterial() {
         }
 
         gl_FragColor = vec4(finalColor, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
+              }
     `
   });
 }

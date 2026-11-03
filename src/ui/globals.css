@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@theme {
+  --color-void: #0a0e17;
+  --color-cyan-glow: #5ee7ff;
+  --color-violet-glow: #8b7bff;
+  --color-rose-glow: #ff5fa8;
+}
+
+@property --rp {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* ---------- Custom Range Slider ---------- */
+.spectro-range {
+  --track: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  --fill-start: 0%;
+}
+.spectro-range.is-bipolar {
+  --fill-start: 50%;
+}
+.spectro-range:focus-visible {
+  outline: 2px solid #5ee7ff;
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+.spectro-range::-webkit-slider-runnable-track {
+  height: var(--track);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.spectro-range::-moz-range-track {
+  height: var(--track);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.spectro-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: radial-gradient(circle at 35% 30%, #ffffff, #bfeeff 55%, #7fb8ff);
+  box-shadow:
+    0 0 0 3px rgba(94, 231, 255, 0.12),
+    0 0 14px rgba(94, 231, 255, 0.7),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.spectro-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: radial-gradient(circle at 35% 30%, #ffffff, #bfeeff 55%, #7fb8ff);
+  box-shadow:
+    0 0 0 3px rgba(94, 231, 255, 0.12),
+    0 0 14px rgba(94, 231, 255, 0.7);
+}
+.spectro-range:hover::-webkit-slider-thumb,
+.spectro-range:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 5px rgba(94, 231, 255, 0.16),
+    0 0 20px rgba(94, 231, 255, 0.9),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+.spectro-range:disabled {
+  cursor: not-allowed;
+}
+
+.spectro-range {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0 min(var(--pct), var(--fill-start)),
+    #5ee7ff min(var(--pct), var(--fill-start)) max(var(--pct), var(--fill-start)),
+    transparent max(var(--pct), var(--fill-start)) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% var(--track);
+  background-position: 0 center;
+  border-radius: 999px;
+  filter: drop-shadow(0 0 4px rgba(94, 231, 255, 0.35));
+}
+.spectro-range::-webkit-slider-runnable-track,
+.spectro-range::-moz-range-track {
+  filter: none;
+}
+
+/* ---------- Scrollbar ---------- */
+.spectro-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.spectro-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.spectro-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+/* ---------- Backdrop / Glow Animations ---------- */
+@keyframes spectro-breathe {
+  0%, 100% {
+    transform: scale(0.92);
+    filter: brightness(0.9);
+  }
+  50% {
+    transform: scale(1.12);
+    filter: brightness(1.15);
+  }
+}
+@keyframes spectro-aurora {
+  0%, 100% {
+    transform: translateX(-6%) skewY(-4deg) scaleY(0.9);
+  }
+  50% {
+    transform: translateX(6%) skewY(5deg) scaleY(1.25);
+  }
+}
+.spectro-breathe {
+  animation: spectro-breathe 8s ease-in-out infinite;
+}
+.spectro-aurora {
+  animation: spectro-aurora 12s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spectro-breathe,
+  .spectro-aurora {
+    animation: none;
+  }
+}

@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import fs from 'fs';
 import path from 'path';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
@@ -20,6 +22,8 @@ export default defineConfig({
     }
   },
   plugins: [
+    react(),
+    tailwindcss(),
     {
       name: 'perf-logger',
       configureServer(server) {

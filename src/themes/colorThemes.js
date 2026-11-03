@@ -8,6 +8,112 @@ import * as THREE from 'three';
  * procedural ambient gradients (Nebula, Waves, Aurora) tuned specifically for each aesthetic.
  */
 export const COLOR_THEMES = {
+  // ── 0. Neon & Cyber Presets (v0 Enhanced) ───────────────────
+  '⚡ Кибер-Неон (Cyber Neon)': {
+    id: 'cyber-neon',
+    title: '⚡ Кибер-Неон (Cyber Neon)',
+    archetype: 'Электрический неоновый рейв: ядовитая фуксия, лазерный циан и лайм',
+    colors: ['#ff2fd6', '#19f3ff', '#b6ff3c'],
+    bg: { center: '#3a0a5c', accent: '#0a5cff', deep: '#05010d' },
+    bgMode: 'nebula',
+    bgOuter: '#05010d',
+    bgInner: '#3a0a5c',
+    bgAccent: '#0a5cff',
+    nebulaIntensity: 7.5,
+    nebulaScale: 1.6,
+    nebulaSpeed: 2.8,
+    vignette: 0.70,
+    toneMappingMode: 'agx',
+    layers: [
+      { color: '#ff2fd6', splitColor: '#19f3ff', name: 'Лазерная фуксия / Циан (Ядро)' },
+      { color: '#19f3ff', splitColor: '#b6ff3c', name: 'Электрик циан / Лайм (Середина)' },
+      { color: '#b6ff3c', splitColor: '#ff2fd6', name: 'Токсичный лайм / Фуксия (Орбита)' }
+    ]
+  },
+  '🌸 Сакура Неон (Sakura Blossom)': {
+    id: 'sakura',
+    title: '🌸 Сакура Неон (Sakura Blossom)',
+    archetype: 'Неоновые лепестки сакуры, мягкий розовый шелк и глубокий сливовый бархат',
+    colors: ['#ffb3cf', '#ff7aa8', '#fff0f5'],
+    bg: { center: '#5a1f3d', accent: '#d65a8c', deep: '#14060d' },
+    bgMode: 'nebula',
+    bgOuter: '#14060d',
+    bgInner: '#5a1f3d',
+    bgAccent: '#d65a8c',
+    nebulaIntensity: 6.2,
+    nebulaScale: 1.5,
+    nebulaSpeed: 2.2,
+    vignette: 0.75,
+    toneMappingMode: 'agx',
+    layers: [
+      { color: '#ffb3cf', splitColor: '#ff7aa8', name: 'Розовая сакура / Маджента (Ядро)' },
+      { color: '#ff7aa8', splitColor: '#fff0f5', name: 'Неоновая роза / Белый шелк (Середина)' },
+      { color: '#fff0f5', splitColor: '#ffb3cf', name: 'Белый шелк / Сакура (Орбита)' }
+    ]
+  },
+  '🌿 Киото Нефрит (Kyoto Jade)': {
+    id: 'kyoto-jade',
+    title: '🌿 Киото Нефрит (Kyoto Jade)',
+    archetype: 'Минеральный светящийся нефрит, бамбуковый изумруд и тишина дзен',
+    colors: ['#3fe0b0', '#c4f7e0', '#139277'],
+    bg: { center: '#0f5a4a', accent: '#2fae8c', deep: '#03100d' },
+    bgMode: 'nebula',
+    bgOuter: '#03100d',
+    bgInner: '#0f5a4a',
+    bgAccent: '#2fae8c',
+    nebulaIntensity: 6.4,
+    nebulaScale: 1.5,
+    nebulaSpeed: 2.2,
+    vignette: 0.78,
+    toneMappingMode: 'agx',
+    layers: [
+      { color: '#3fe0b0', splitColor: '#c4f7e0', name: 'Светящийся нефрит / Мята (Ядро)' },
+      { color: '#c4f7e0', splitColor: '#139277', name: 'Мятный нефрит / Глубокий изумруд (Середина)' },
+      { color: '#139277', splitColor: '#3fe0b0', name: 'Глубокий изумруд / Нефрит (Орбита)' }
+    ]
+  },
+  '🌋 Вулканическая Магма (Volcanic Magma)': {
+    id: 'volcanic-magma',
+    title: '🌋 Вулканическая Магма (Volcanic Magma)',
+    archetype: 'Раскаленная лава, пылающий янтарь и обсидиановый пепел',
+    colors: ['#ff5a1f', '#ffc233', '#8a1410'],
+    bg: { center: '#5c0f08', accent: '#d93a0c', deep: '#0b0201' },
+    bgMode: 'nebula',
+    bgOuter: '#0b0201',
+    bgInner: '#5c0f08',
+    bgAccent: '#d93a0c',
+    nebulaIntensity: 6.8,
+    nebulaScale: 1.5,
+    nebulaSpeed: 2.4,
+    vignette: 0.80,
+    toneMappingMode: 'agx',
+    layers: [
+      { color: '#ff5a1f', splitColor: '#ffc233', name: 'Огненная лава / Янтарь (Ядро)' },
+      { color: '#ffc233', splitColor: '#8a1410', name: 'Пылающий янтарь / Магма (Середина)' },
+      { color: '#8a1410', splitColor: '#ff5a1f', name: 'Темная магма / Лава (Орбита)' }
+    ]
+  },
+  '🌅 Закатный Шелк (Sunset Silk)': {
+    id: 'sunset-silk',
+    title: '🌅 Закатный Шелк (Sunset Silk)',
+    archetype: 'Теплый закат, сияющий коралл, золото и сумеречный фиолет',
+    colors: ['#ffb15c', '#ff5f7a', '#8a3cff'],
+    bg: { center: '#6a2250', accent: '#ff7a45', deep: '#12040f' },
+    bgMode: 'aurora',
+    bgOuter: '#12040f',
+    bgInner: '#6a2250',
+    bgAccent: '#ff7a45',
+    nebulaIntensity: 6.5,
+    nebulaScale: 1.6,
+    nebulaSpeed: 2.3,
+    vignette: 0.75,
+    toneMappingMode: 'agx',
+    layers: [
+      { color: '#ffb15c', splitColor: '#ff5f7a', name: 'Теплый персик / Коралл (Ядро)' },
+      { color: '#ff5f7a', splitColor: '#8a3cff', name: 'Коралл / Сумеречный фиолет (Середина)' },
+      { color: '#8a3cff', splitColor: '#ffb15c', name: 'Сумеречный фиолет / Персик (Орбита)' }
+    ]
+  },
   // ── 0. Изначальный авторский шедевр ─────────────────────────
   '🌌 Авторский Оригинал (Полночный Индиго)': {
     id: 'original',

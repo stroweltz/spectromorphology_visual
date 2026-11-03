@@ -1,5 +1,5 @@
 // --- App Version & Automatic Cache Invalidation ---
-export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0';
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.0';
 const STORAGE_VERSION_KEY = 'spectromorphology_app_version';
 
 (function handleVersionUpgrade() {
@@ -31,7 +31,8 @@ const STORAGE_VERSION_KEY = 'spectromorphology_app_version';
 })();
 
 import * as THREE from 'three';
-import GUI from 'lil-gui';
+import { mountControlPanel } from './ui/mount.tsx';
+import { fpsStore } from './ui/fps-store.ts';
 import { FishRibbon } from './ribbon/FishRibbon.js';
 import { createKaleidoscopeMaterial } from './shaders/kaleidoscopeMaterial.js';
 import { COLOR_THEMES } from './themes/colorThemes.js';
@@ -43,7 +44,7 @@ const width = window.innerWidth;
 const height = window.innerHeight;
 
 // 1. Renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(width, height);
 
 // Detect software emulator (Microsoft Basic Render Driver, WARP, SwiftShader, llvmpipe)
@@ -65,9 +66,7 @@ function checkIsSoftwareRenderer(gl) {
 
 const isSoftwareRenderer = checkIsSoftwareRenderer(renderer.getContext());
 renderer.setPixelRatio(isSoftwareRenderer ? 1.0 : Math.min(window.devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
-renderer.toneMappingExposure = 1.0;
+fpsStore.setEngine(renderer.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1');
 renderer.info.autoReset = false; // Allow multi-pass draw call and triangle accumulation
 container.appendChild(renderer.domElement);
 
@@ -382,8 +381,8 @@ const params = {
   strokeWidthLimit: 4.0,       // Потолок толщины [0..10] (10.0 = полная кисть 0.080)
   roughness: isSoftwareRenderer ? 0.0 : 3.5,     // Рваный край [0..10] (3.5 = 0.35)
   fiberIntensity: isSoftwareRenderer ? 0.0 : 3.5, // Волокна бумаги [0..10] (3.5 = 0.28)
-  edgeBorder: 6.5,              // Кайма кромки / четкость перекрытий [0..10] (6.5 = 0.65)
-  ribbonVolume: 5.5,            // 3D объём и блик ленты [0..10] (5.5 = 0.55)
+  edgeBorder: 0.0,              // Кайма кромки / четкость перекрытий [0..10] (6.5 = 0.65)
+  ribbonVolume: 0.0,            // 3D объём и блик ленты [0..10] (5.5 = 0.55)
   widthSpeed: 2.8,              // Скорость изменения толщины [0..10] (2.8 = 0.22)
   centerTaperStrength: 8.5,     // Сужение к центру [0..10] (8.5 = 0.85)
   centerTaperRadius: 5.8,       // Радиус сужения [1..10] (5.8 = 0.35)
@@ -412,8 +411,14 @@ const params = {
   nebulaSpeed: 2.5,
   nebulaScale: 1.4,
   vignette: 0.75,
-  dropShadow: isSoftwareRenderer ? 0.0 : 5.0,              // Тень мандалы на фон [0..10] (5.0 = 0.50)
+  dropShadow: 0.0,              // Тень мандалы на фон [0..10] (5.0 = 0.50)
   filmGrain: 0.0,
+
+  // Neon Bloom & Photonic Glow (Controllable & subtle by default to preserve paper texture)
+  bloomEnabled: true,
+  neonBloom: 0.35,              // Деликатное свечение (0.0 = чистая бумага, 1.0 = тяжелый неон)
+  bloomRadius: 12.0,            // Радиус размытия ореола (px)
+  bloomContrast: 2.5,           // Отсечка темного фона (только мазки дают свечение)
 
   // Performance & Graphics
   fboResolution: defaultFbo,
@@ -508,10 +513,6 @@ function rerollBrushWidths() {
 
 
 // ── Curated Master Color Themes Integration ────────────────
-let themeCtrl, descCtrl;
-let l1ColCtrl, l1SplitCtrl, l2ColCtrl, l2SplitCtrl, l3ColCtrl, l3SplitCtrl;
-const themeDesc = { text: COLOR_THEMES[params.colorTheme]?.archetype || 'Абсолютный неоновый контраст на черном' };
-
 function applyColorTheme(themeKey) {
   const t = COLOR_THEMES[themeKey];
   if (!t) return;
@@ -554,330 +555,78 @@ function applyColorTheme(themeKey) {
   if (t.toneMappingMode) {
     params.toneMappingMode = t.toneMappingMode;
     renderer.toneMapping = (t.toneMappingMode === 'agx') ? THREE.AgXToneMapping : THREE.NoToneMapping;
-    if (typeof toneMappingCtrl !== 'undefined' && toneMappingCtrl) toneMappingCtrl.updateDisplay();
-  }
-  if (themeDesc) themeDesc.text = t.archetype;
-  if (descCtrl) descCtrl.updateDisplay();
-  if (themeCtrl) themeCtrl.updateDisplay();
-  if (bgOuterCtrl) bgOuterCtrl.updateDisplay();
-  if (bgInnerCtrl) bgInnerCtrl.updateDisplay();
-  if (bgAccentCtrl) bgAccentCtrl.updateDisplay();
-  if (vigCtrl) vigCtrl.updateDisplay();
-  if (bgModeCtrl) bgModeCtrl.updateDisplay();
-  if (intensityCtrl) intensityCtrl.updateDisplay();
-  if (speedCtrl) speedCtrl.updateDisplay();
-  if (scaleCtrl) scaleCtrl.updateDisplay();
-  if (l1ColCtrl) l1ColCtrl.updateDisplay();
-  if (l1SplitCtrl) l1SplitCtrl.updateDisplay();
-  if (l2ColCtrl) l2ColCtrl.updateDisplay();
-  if (l2SplitCtrl) l2SplitCtrl.updateDisplay();
-  if (l3ColCtrl) l3ColCtrl.updateDisplay();
-  if (l3SplitCtrl) l3SplitCtrl.updateDisplay();
-}
-
-const gui = new GUI({ title: 'Параметры Визуализатора' });
-gui.domElement.classList.add('gui-drawer-panel');
-
-// ── Mobile Drawer Integration (Slide-out panel for <= 768px) ──
-const mobileHeader = document.createElement('div');
-mobileHeader.className = 'gui-mobile-header';
-mobileHeader.innerHTML = `
-  <div class="gui-mobile-header-title">
-    <span class="gui-mobile-header-icon" aria-hidden="true">⚙️</span>
-    <span>Параметры</span>
-  </div>
-  <button id="gui-close-btn" class="gui-mobile-close-btn" type="button" aria-label="Закрыть меню">
-    <span>✕ Закрыть</span>
-  </button>
-`;
-gui.domElement.prepend(mobileHeader);
-
-const toggleBtn = document.getElementById('gui-toggle-btn');
-const backdrop = document.getElementById('gui-backdrop');
-const closeBtn = document.getElementById('gui-close-btn');
-
-function openMobileDrawer() {
-  document.body.classList.add('gui-drawer-open');
-  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
-}
-
-function closeMobileDrawer() {
-  document.body.classList.remove('gui-drawer-open');
-  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
-}
-
-let lastToggleTime = 0;
-function toggleMobileDrawer() {
-  const now = Date.now();
-  if (now - lastToggleTime < 200) return;
-  lastToggleTime = now;
-  if (document.body.classList.contains('gui-drawer-open')) {
-    closeMobileDrawer();
-  } else {
-    openMobileDrawer();
   }
 }
 
-if (toggleBtn) {
-  toggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleMobileDrawer();
-  });
-  toggleBtn.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleMobileDrawer();
-  });
-}
+// ── Bloom Canvas Setup (Soft Photonic Glow Overlay) ──
+const bloomCanvas = document.getElementById('bloom-canvas');
+const bctx = bloomCanvas ? bloomCanvas.getContext('2d') : null;
 
-if (backdrop) {
-  const handleBackdrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    closeMobileDrawer();
-  };
-  backdrop.addEventListener('click', handleBackdrop);
-  backdrop.addEventListener('touchend', handleBackdrop);
-}
-
-if (closeBtn) {
-  const handleClose = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    closeMobileDrawer();
-  };
-  closeBtn.addEventListener('click', handleClose);
-  closeBtn.addEventListener('touchend', handleClose);
-}
-
-// Swipe right to close gesture on mobile drawer
-let touchStartX = -1;
-let touchStartY = -1;
-let touchDeltaX = 0;
-let touchDeltaY = 0;
-
-gui.domElement.addEventListener('touchstart', (e) => {
-  // Ignore gestures on interactive inputs/sliders
-  if (e.target.closest('.slider, .display, input, select, button, .name, .lil-slider, .lil-display')) {
-    touchStartX = -1;
+function updateBloomCanvasStyle() {
+  if (!bloomCanvas) return;
+  const intensity = params.neonBloom ?? 0.0;
+  if (!params.bloomEnabled || intensity <= 0.005) {
+    bloomCanvas.style.opacity = '0';
+    bloomCanvas.style.display = 'none';
+    if (bctx) bctx.clearRect(0, 0, bloomCanvas.width, bloomCanvas.height);
     return;
   }
-  if (e.touches.length === 1) {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchDeltaX = 0;
-    touchDeltaY = 0;
-  }
-}, { passive: true });
-
-gui.domElement.addEventListener('touchmove', (e) => {
-  if (touchStartX < 0) return;
-  if (e.touches.length === 1) {
-    touchDeltaX = e.touches[0].clientX - touchStartX;
-    touchDeltaY = e.touches[0].clientY - touchStartY;
-  }
-}, { passive: true });
-
-gui.domElement.addEventListener('touchend', () => {
-  if (touchStartX >= 0 && touchDeltaX > 50 && Math.abs(touchDeltaX) > Math.abs(touchDeltaY) * 1.4) {
-    closeMobileDrawer();
-  }
-  touchStartX = -1;
-  touchStartY = -1;
-  touchDeltaX = 0;
-  touchDeltaY = 0;
-}, { passive: true });
-
-// ── Fullscreen & Zen Mode (Zero screen clutter) ─────────────────
-let isZenMode = false;
-let zenIdleTimeout = null;
-
-const fullscreenBtn = document.getElementById('fullscreen-btn');
-const zenExitBtn = document.getElementById('zen-exit-btn');
-
-function resetZenIdleTimer() {
-  if (!isZenMode) return;
-  document.body.classList.remove('zen-idle');
-  if (zenIdleTimeout) clearTimeout(zenIdleTimeout);
-  zenIdleTimeout = setTimeout(() => {
-    if (isZenMode) {
-      document.body.classList.add('zen-idle');
-    }
-  }, 2500);
+  bloomCanvas.style.display = 'block';
+  bloomCanvas.style.opacity = String(intensity * 0.95);
+  bloomCanvas.style.filter = `blur(${params.bloomRadius || 12}px) saturate(1.35)`;
 }
 
-function enterFullscreenZenMode() {
-  isZenMode = true;
-  document.body.classList.add('zen-mode');
-  document.body.classList.remove('zen-idle');
-
-  // Close mobile drawer if it was open
-  if (typeof closeMobileDrawer === 'function') {
-    closeMobileDrawer();
-  }
-
-  // Request native browser fullscreen if supported
-  const el = document.documentElement;
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    if (el.requestFullscreen) {
-      el.requestFullscreen().catch(() => {});
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
-    }
-  }
-
-  resetZenIdleTimer();
+function resizeBloomCanvas() {
+  if (!bloomCanvas) return;
+  bloomCanvas.width = Math.max(2, Math.round(window.innerWidth / 5));
+  bloomCanvas.height = Math.max(2, Math.round(window.innerHeight / 5));
+  updateBloomCanvasStyle();
 }
+resizeBloomCanvas();
+window.addEventListener('resize', resizeBloomCanvas);
 
-function exitFullscreenZenMode() {
-  isZenMode = false;
-  document.body.classList.remove('zen-mode', 'zen-idle');
-  if (zenIdleTimeout) clearTimeout(zenIdleTimeout);
+// ── LocalStorage Settings Persistence ──
+const STORAGE_KEY = 'spectromorphology_user_settings_v2_0';
 
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    if (document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    }
-  }
-}
-
-function toggleFullscreenZenMode(forceState) {
-  const target = (typeof forceState === 'boolean') ? forceState : !isZenMode;
-  if (target) {
-    enterFullscreenZenMode();
-  } else {
-    exitFullscreenZenMode();
-  }
-}
-
-if (fullscreenBtn) {
-  fullscreenBtn.addEventListener('click', () => toggleFullscreenZenMode());
-}
-if (zenExitBtn) {
-  zenExitBtn.addEventListener('click', () => exitFullscreenZenMode());
-}
-
-['mousemove', 'mousedown', 'touchstart', 'touchmove'].forEach(evt => {
-  window.addEventListener(evt, resetZenIdleTimer, { passive: true });
-});
-
-document.addEventListener('fullscreenchange', () => {
-  if (!document.fullscreenElement && isZenMode) {
-    exitFullscreenZenMode();
-  }
-});
-document.addEventListener('webkitfullscreenchange', () => {
-  if (!document.webkitFullscreenElement && isZenMode) {
-    exitFullscreenZenMode();
-  }
-});
-
-// Double click canvas to toggle fullscreen zen mode
-const canvasWrapper = document.getElementById('canvas-container');
-if (canvasWrapper) {
-  canvasWrapper.addEventListener('dblclick', () => {
-    toggleFullscreenZenMode();
-  });
-}
-
-// Close on Escape key & Toggle Fullscreen on 'F'
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    if (isZenMode) {
-      exitFullscreenZenMode();
-      return;
-    }
-    if (document.body.classList.contains('gui-drawer-open')) {
-      closeMobileDrawer();
-      return;
-    }
-  }
-  if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.altKey && !e.metaKey) {
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-    toggleFullscreenZenMode();
-  }
-});
-
-
-// Close drawer if window is resized above 768px
-window.addEventListener('resize', () => {
-  if (window.innerWidth > 768 && document.body.classList.contains('gui-drawer-open')) {
-    closeMobileDrawer();
-  }
-});
-
-// Auto-open on launch if requested via URL query (?openMenu)
-if (window.innerWidth <= 768 && new URLSearchParams(window.location.search).has('openMenu')) {
-  openMobileDrawer();
-}
-
-// ── LocalStorage Settings Persistence ───────────────────
-const STORAGE_KEY = 'spectromorphology_user_settings_v1_6_original';
-
-function showToast(message, isError = false) {
-  const toast = document.getElementById('hud-toast');
-  if (!toast) return;
-  toast.textContent = message;
-  toast.style.borderColor = isError ? 'rgba(245, 101, 101, 0.65)' : 'rgba(72, 187, 120, 0.65)';
-  toast.style.color = isError ? '#f56565' : '#48bb78';
-  toast.style.boxShadow = isError
-    ? '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 101, 101, 0.25)'
-    : '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(72, 187, 120, 0.25)';
-  toast.style.display = 'block';
-  toast.style.opacity = '1';
-  clearTimeout(toast._timeout);
-  toast._timeout = setTimeout(() => {
-    toast.style.opacity = '0';
-    setTimeout(() => { toast.style.display = 'none'; }, 300);
-  }, 2200);
-}
-
-const defaultParams = JSON.parse(JSON.stringify(params));
-const defaultLayerParams = { layer1: true, layer2: true, layer3: true };
-const defaultPerfParams = { showTelemetry: true };
-const defaultDebugParams = { brushDebugMode: false };
-
-const storageParams = {
-  autoSave: true
-};
-
-let isRestoringSettings = false;
-
-function saveCurrentSettings(showNotification = true) {
+function saveCurrentSettings() {
   try {
     const data = {
       params: { ...params },
-      layerParams: { ...layerParams },
-      perfParams: { ...perfParams },
-      debugParams: { ...debugParams },
-      storageParams: { ...storageParams },
+      layerParams: {
+        core: {
+          visible: ribbons[0]?.group.visible ?? true,
+          primary: params.layer1Color,
+          split: params.layer1Split
+        },
+        middle: {
+          visible: ribbons[1]?.group.visible ?? true,
+          primary: params.layer2Color,
+          split: params.layer2Split
+        },
+        orbit: {
+          visible: ribbons[2]?.group.visible ?? true,
+          primary: params.layer3Color,
+          split: params.layer3Split
+        }
+      },
       initialSpeedRatios: [...initialSpeedRatios],
       initialWidthRatios: [...initialWidthRatios],
       timestamp: Date.now()
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    if (showNotification) {
-      showToast('💾 Параметры сохранены в localStorage');
-    }
     return true;
   } catch (err) {
     console.error('Failed to save settings:', err);
-    if (showNotification) {
-      showToast('❌ Ошибка сохранения в localStorage', true);
-    }
     return false;
   }
 }
 
-function loadSavedSettings(silent = false) {
-  isRestoringSettings = true;
+function loadSavedSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const data = JSON.parse(raw);
-    if (!data) return false;
+    if (!data || !data.params) return false;
 
     if (Array.isArray(data.initialSpeedRatios) && data.initialSpeedRatios.length === 3) {
       for (let i = 0; i < 3; i++) initialSpeedRatios[i] = data.initialSpeedRatios[i];
@@ -886,505 +635,483 @@ function loadSavedSettings(silent = false) {
       for (let i = 0; i < 3; i++) initialWidthRatios[i] = data.initialWidthRatios[i];
     }
 
-    if (data.storageParams && typeof data.storageParams.autoSave === 'boolean') {
-      storageParams.autoSave = data.storageParams.autoSave;
-    }
+    Object.assign(params, data.params);
 
-    // Apply values through controllers so that onChange callbacks fire properly
-    const controllers = gui.controllersRecursive();
-    controllers.forEach(ctrl => {
-      const prop = ctrl.property;
-      if (typeof ctrl.getValue() === 'function') return;
-
-      if (data.params && prop in data.params) {
-        if (isSoftwareRenderer) {
-          if (prop === 'fboResolution') {
-            ctrl.setValue(512);
-          } else if (prop === 'roughness' || prop === 'fiberIntensity' || prop === 'dropShadow') {
-            ctrl.setValue(0);
-          } else if (prop === 'screenDpi') {
-            ctrl.setValue(1.0);
-          } else if (prop === 'bgMode') {
-            ctrl.setValue('radial');
-          } else {
-            ctrl.setValue(data.params[prop]);
-          }
-        } else if (prop === 'fboResolution' && data.params[prop] > 1920 && isMobileOrIntegrated) {
-          ctrl.setValue(1536);
-        } else {
-          ctrl.setValue(data.params[prop]);
-        }
-      } else if (data.layerParams && prop in data.layerParams) {
-        ctrl.setValue(data.layerParams[prop]);
-      } else if (data.perfParams && prop in data.perfParams) {
-        ctrl.setValue(data.perfParams[prop]);
-      } else if (data.debugParams && prop in data.debugParams) {
-        ctrl.setValue(data.debugParams[prop]);
-      } else if (data.storageParams && prop in data.storageParams) {
-        ctrl.setValue(data.storageParams[prop]);
+    if (data.layerParams) {
+      if (data.layerParams.core && ribbons[0]) {
+        ribbons[0].group.visible = data.layerParams.core.visible !== false;
       }
-    });
-
-    if (!silent) {
-      showToast('📂 Загружены сохранённые параметры');
+      if (data.layerParams.middle && ribbons[1]) {
+        ribbons[1].group.visible = data.layerParams.middle.visible !== false;
+      }
+      if (data.layerParams.orbit && ribbons[2]) {
+        ribbons[2].group.visible = data.layerParams.orbit.visible !== false;
+      }
     }
+
+    applyAllParams();
     return true;
   } catch (err) {
     console.error('Failed to load settings:', err);
     return false;
-  } finally {
-    isRestoringSettings = false;
   }
 }
 
-function resetToDefaultSettings() {
-  isRestoringSettings = true;
-  try {
-    localStorage.removeItem(STORAGE_KEY);
+function applyAllParams() {
+  updateAllInstances();
+  applyBgMode(params.bgMode);
+  kaleidoscopeMaterial.uniforms.uBgOuter.value.set(params.bgOuter);
+  kaleidoscopeMaterial.uniforms.uBgInner.value.set(params.bgInner);
+  if (params.bgAccent) kaleidoscopeMaterial.uniforms.uBgAccent.value.set(params.bgAccent);
+  kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = params.nebulaIntensity * 0.10;
+  kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = params.nebulaSpeed * 0.10;
+  kaleidoscopeMaterial.uniforms.uNebulaScale.value = params.nebulaScale;
+  kaleidoscopeMaterial.uniforms.uVignette.value = params.vignette;
+  kaleidoscopeMaterial.uniforms.uFilmGrain.value = params.filmGrain * 0.10;
+  kaleidoscopeMaterial.uniforms.uDropShadow.value = params.dropShadow * 0.10;
+  kaleidoscopeMaterial.uniforms.uStrokeScale.value = (0.7 / initStrokeExtent) * (params.zoom || 1.0);
 
-    const controllers = gui.controllersRecursive();
-    controllers.forEach(ctrl => {
-      const prop = ctrl.property;
-      if (typeof ctrl.getValue() === 'function') return;
-
-      if (prop in defaultParams) {
-        ctrl.setValue(defaultParams[prop]);
-      } else if (prop in defaultLayerParams) {
-        ctrl.setValue(defaultLayerParams[prop]);
-      } else if (prop in defaultPerfParams) {
-        ctrl.setValue(defaultPerfParams[prop]);
-      } else if (prop in defaultDebugParams) {
-        ctrl.setValue(defaultDebugParams[prop]);
-      }
-    });
-
-    showToast('↺ Настройки сброшены к заводским');
-  } catch (err) {
-    console.error('Failed to reset settings:', err);
-  } finally {
-    isRestoringSettings = false;
-  }
-}
-
-// ── Top Action: Fullscreen & Save Buttons ────────────────
-gui.add({
-  toggleFullscreen: () => toggleFullscreenZenMode()
-}, 'toggleFullscreen').name('🖥️ Фулскрин (Без интерфейса)');
-
-gui.add({
-  saveNow: () => saveCurrentSettings(true)
-}, 'saveNow').name('💾 Запомнить параметры');
-
-// ── Debug brush mode button ─────────────────────────────
-const debugParams = {
-  brushDebugMode: false,
-};
-gui.add(debugParams, 'brushDebugMode').name('🖌 Режим кисти (debug)').onChange(v => {
-  brushDebugMode = v;
-  brushDebug.setVisible(v);
-  debugBgMesh.visible = v;
-
-  const hudDebug = document.getElementById('hud-debug');
-  const hudSub = document.getElementById('hud-subtitle');
-  if (hudDebug) hudDebug.style.display = v ? 'inline-block' : 'none';
-  if (hudSub) hudSub.textContent = v ? 'Исходная траектория кисти · Без симметрий' : 'Мандала бумажных мазков · Рыбья кинематика';
-
-  if (v) {
-    // Show only the original (non-instanced) ribbon in debug mode
-    ribbons.forEach(r => {
-      r.mesh.count = 1;
-      if (r.splitMesh.visible) r.splitMesh.count = 1;
-    });
+  if (params.toneMappingMode === 'agx') {
+    renderer.toneMapping = THREE.AgXToneMapping;
+    renderer.toneMappingExposure = 1.0;
   } else {
-    // Restore mandala instances
-    updateAllInstances();
+    renderer.toneMapping = THREE.NoToneMapping;
   }
-});
 
-gui.add({
-  rerollAll: () => {
-    rerollBrushSpeeds();
-    rerollBrushWidths();
-  }
-}, 'rerollAll').name('🎲 Случайный ансамбль (всё)');
+  ribbons.forEach((r, idx) => {
+    r.widthLimit = params.strokeWidthLimit * 0.008;
+    r.material.uniforms.uRoughness.value = params.roughness * 0.10;
+    r.splitMaterial.uniforms.uRoughness.value = params.roughness * 0.10;
+    r.material.uniforms.uFiberIntensity.value = params.fiberIntensity * 0.08;
+    r.splitMaterial.uniforms.uFiberIntensity.value = params.fiberIntensity * 0.08;
+    r.material.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
+    r.splitMaterial.uniforms.uEdgeBorder.value = params.edgeBorder * 0.10;
+    r.material.uniforms.uRibbonVolume.value = params.ribbonVolume * 0.10;
+    r.splitMaterial.uniforms.uRibbonVolume.value = params.ribbonVolume * 0.10;
 
-const fPerf = gui.addFolder('🚀 Производительность и Графика');
-const perfParams = { showTelemetry: true };
-fPerf.add(perfParams, 'showTelemetry').name('⚡ Телеметрия / FPS HUD').onChange(v => {
-  if (hudPerf) hudPerf.style.display = v ? 'inline-flex' : 'none';
-});
-fPerf.add(params, 'keepAwake').name('💡 Не гасить экран (VJ / Пати)').onChange(v => {
-  if (v) acquireWakeLock(); else releaseWakeLock();
-});
-fPerf.add(params, 'batteryEcoMode').name('🔋 Эко-режим (только от батареи)');
-fPerf.add(params, 'fboResolution', {
-  '👑 4K Cinema (3840px · Максимум)': 3840,
-  '💎 Ультра Retina (2560px · Рекомендуется)': 2560,
-  '🎨 Высокое (2048px · Чётко)': 2048,
-  '⚡ Баланс (1536px · Быстро)': 1536,
-  '🚀 Турбо (1024px · Легко)': 1024,
-  '🛡️ Эко / Софтверный (512px · Ультра-легко)': 512
-}).name('Качество холста (FBO)').onChange(v => setFboResolution(v));
-fPerf.add(params, 'screenDpi', {
-  '🛡️ Софтверный / Эко (1.0x)': 1.0,
-  '⚡ Стандарт (1.2x)': 1.2,
-  '🎨 Высокая чёткость (1.5x)': 1.5,
-  '💎 Ultra Retina (2.0x)': 2.0
-}).name('Разрешение экрана (DPI)').onChange(v => {
-  renderer.setPixelRatio(v);
-});
-fPerf.close();
-
-
-const fTheme = gui.addFolder('🎨 Художественные темы и Цвета');
-descCtrl = fTheme.add(themeDesc, 'text').name('ℹ️ Стиль').listen().disable();
-
-themeCtrl = fTheme.add(params, 'colorTheme', Object.keys(COLOR_THEMES))
-  .name('✨ Выбор палитры')
-  .onChange(applyColorTheme);
-
-const toneMappingCtrl = fTheme.add(params, 'toneMappingMode', {
-  'AgX Cinema (Мягкое свечение)': 'agx',
-  'Без тонемаппинга (Прямой)': 'none'
-}).name('Тонемаппинг').onChange(v => {
-  renderer.toneMapping = (v === 'agx') ? THREE.AgXToneMapping : THREE.NoToneMapping;
-});
-
-const fCustomColors = fTheme.addFolder('🎛 Тонкая настройка цветов кистей');
-l1ColCtrl = fCustomColors.addColor(params, 'layer1Color').name('Кисть 1 (Ядро): Основной').onChange(v => ribbons[0].setColors(v, params.layer1Split));
-l1SplitCtrl = fCustomColors.addColor(params, 'layer1Split').name('Кисть 1 (Ядро): Сплит').onChange(v => ribbons[0].setColors(params.layer1Color, v));
-l2ColCtrl = fCustomColors.addColor(params, 'layer2Color').name('Кисть 2 (Середина): Основной').onChange(v => ribbons[1].setColors(v, params.layer2Split));
-l2SplitCtrl = fCustomColors.addColor(params, 'layer2Split').name('Кисть 2 (Середина): Сплит').onChange(v => ribbons[1].setColors(params.layer2Color, v));
-l3ColCtrl = fCustomColors.addColor(params, 'layer3Color').name('Кисть 3 (Орбита): Основной').onChange(v => ribbons[2].setColors(v, params.layer3Split));
-l3SplitCtrl = fCustomColors.addColor(params, 'layer3Split').name('Кисть 3 (Орбита): Сплит').onChange(v => ribbons[2].setColors(params.layer3Color, v));
-fCustomColors.close();
-
-const fLayers = gui.addFolder('Слои кистей (вкл/выкл)');
-const layerParams = {
-  layer1: true,
-  layer2: true,
-  layer3: true,
-};
-const layerConfigs = [
-  { key: 'layer1', name: 'Кисть 1: Рубин / Янтарь' },
-  { key: 'layer2', name: 'Кисть 2: Бирюза / Изумруд' },
-  { key: 'layer3', name: 'Кисть 3: Фиолет / Коралл' },
-];
-layerConfigs.forEach((cfg, idx) => {
-  fLayers.add(layerParams, cfg.key).name(cfg.name).onChange(v => {
-    ribbons[idx].group.visible = v;
-    brushDebug.setRibbonVisible(idx, v);
-  });
-});
-
-const fKaleido = gui.addFolder('Мандала / Симметрия');
-fKaleido.add(params, 'sectors', 2, 32, 1).name('Секторы симметрии').onChange(v => {
-  updateAllInstances();
-});
-fKaleido.add(params, 'mirror').name('Зеркальные грани').onChange(v => {
-  updateAllInstances();
-});
-fKaleido.add(params, 'autoRotate').name('Авто-вращение');
-fKaleido.add(params, 'rotationSpeed', -1.0, 1.0, 0.01).name('Скорость вращения');
-fKaleido.add(params, 'zoom', 0.4, 2.5, 0.05).name('Масштаб (Zoom)').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uZoom.value = v;
-});
-
-const fFish = gui.addFolder('Кинематика кисти и след');
-fFish.add(params, 'motionSpeed', 0.2, 3.0, 0.1).name('Скорость движения').onChange(v => {
-  ribbons.forEach(r => r.speed = v);
-});
-fFish.add(params, 'orbitSpeed', 0.05, 1.5, 0.05).name('Скорость кисти (орбита)').onChange(v => {
-  ribbons.forEach(r => r.orbitSpeed = v);
-});
-fFish.add(params, 'boundaryRadius', 0.25, 0.70, 0.01).name('Радиус обитания').onChange(v => {
-  ribbons.forEach(r => r.maxBoundaryRadius = v);
-});
-const minTurnCtrl = fFish.add(params, 'minTurnRadius', 0.0, 0.5, 0.01).name('Мин. радиус поворота').onChange(v => {
-  let effectiveRadius = v;
-  if (params.autoRadiusCoupling) {
-    const minSafeR = (params.strokeWidthLimit * 0.008) * 0.6;
-    if (v < minSafeR) {
-      effectiveRadius = minSafeR;
-      minTurnCtrl.setValue(minSafeR);
-    }
-  }
-  ribbons.forEach(r => r.minTurnRadius = effectiveRadius);
-});
-fFish.add(params, 'autoRadiusCoupling').name('🔗 Связка R_min с шириной').onChange(v => {
-  if (v) {
-    const minSafeR = (params.strokeWidthLimit * 0.008) * 0.6;
-    if (params.minTurnRadius < minSafeR) {
-      params.minTurnRadius = minSafeR;
-      minTurnCtrl.setValue(minSafeR);
-      ribbons.forEach(r => r.minTurnRadius = minSafeR);
-    }
-  }
-});
-fFish.add(params, 'fixedPathTrail').name('📌 Фиксированный след').onChange(v => {
-  ribbons.forEach(r => r.fixedPathTrail = v);
-});
-fFish.add(params, 'trailLength', 0.5, 3.5, 0.1).name('Длина шлейфа кисти').onChange(v => {
-  ribbons.forEach(r => r.trailLength = v);
-});
-fFish.add(params, 'waveAmplitude', 0.0, 10.0, 0.1).name('Амплитуда виляния (0..10)').onChange(v => {
-  ribbons.forEach(r => r.waveAmp = v * 0.008);
-});
-fFish.add(params, 'waveFrequency', 0.5, 8.0, 0.1).name('Частота синусоиды пути').onChange(v => {
-  ribbons.forEach(r => r.waveFreq = v);
-});
-
-// Папка: Холст и рисование (накопление мазков)
-const fCanvas = gui.addFolder('🎨 Холст (накопление мазков)');
-fCanvas.add(params, 'persistentCanvas').name('Накапливать рисунок').onChange(v => {
-  if (!v) {
-    renderer.setRenderTarget(strokeRenderTarget);
-    renderer.setClearColor(0x000000, 0.0);
-    renderer.clear();
-    renderer.setRenderTarget(null);
-  }
-});
-fCanvas.add({
-  clearCanvas: () => {
-    renderer.setRenderTarget(strokeRenderTarget);
-    renderer.setClearColor(0x000000, 0.0);
-    renderer.clear();
-    renderer.setRenderTarget(null);
-  }
-}, 'clearCanvas').name('🧹 Очистить холст');
-
-// Папка: Раздвоение кисти (Расщепление на две головы)
-const fBifurcation = gui.addFolder('✂️ Раздвоение кисти (Расщепление)');
-fBifurcation.add(params, 'bifurcationEnabled').name('Вкл. авто-раздвоение').onChange(v => {
-  ribbons.forEach(r => r.bifurcationEnabled = v);
-});
-fBifurcation.add(params, 'splitChance', 0.0, 1.0, 0.05).name('Вероятность при тонком').onChange(v => {
-  ribbons.forEach(r => r.splitChance = v);
-});
-fBifurcation.add(params, 'splitThreshold', 1.0, 8.0, 0.1).name('Порог запуска (1..8)').onChange(v => {
-  ribbons.forEach(r => r.splitThreshold = v * 0.10);
-});
-fBifurcation.add(params, 'splitSeparation', 1.0, 10.0, 0.1).name('Дистанция голов (1..10)').onChange(v => {
-  ribbons.forEach(r => r.splitSeparation = v * 0.013);
-});
-fBifurcation.add(params, 'splitDuration', 2.0, 15.0, 0.5).name('Длительность (сек)').onChange(v => {
-  ribbons.forEach(r => r.splitDuration = v);
-});
-fBifurcation.add({
-  forceSplitNow: () => {
-    ribbons.forEach(r => r.triggerSplit(r.currentWidth, true));
-  }
-}, 'forceSplitNow').name('✂️ Раздвоить сейчас!');
-
-// Подпапка: Случайные независимые скорости
-const fSpeedVar = fFish.addFolder('🎲 Случайные скорости кистей');
-fSpeedVar.add(params, 'randomSpeedMode').name('Вкл. разные скорости').onChange(v => {
-  ribbons.forEach(r => r.randomSpeedEnabled = v);
-});
-fSpeedVar.add(params, 'speedVariance', 0.0, 10.0, 0.1).name('Разброс скоростей (0..10)').onChange(v => {
-  applySpeedVariance(v);
-});
-fSpeedVar.add(params, 'dynamicSpeedDrift').name('Органический дрейф').onChange(v => {
-  ribbons.forEach(r => r.speedDriftEnabled = v);
-});
-fSpeedVar.add(params, 'speedDriftIntensity', 0.0, 10.0, 0.1).name('Сила дрейфа (0..10)').onChange(v => {
-  ribbons.forEach(r => r.speedWanderIntensity = v * 0.10);
-});
-fSpeedVar.add({ reroll: rerollBrushSpeeds }, 'reroll').name('🎲 Новые скорости');
-
-const fPaper = gui.addFolder('Толщина мазков и бумага');
-
-// ── Ограничитель максимальной толщины для всех кистей (шкала 0..10: 10.0 = 0.080) ──
-const limitCtrl = fPaper.add(params, 'strokeWidthLimit', 0.5, 15.0, 0.1)
-  .name('🛑 Потолок толщины (0..10)')
-  .onChange(v => {
-    ribbons.forEach(r => r.setWidthLimit(v * 0.008));
-    if (params.autoRadiusCoupling) {
-      const minSafeR = (v * 0.008) * 0.6;
-      if (params.minTurnRadius < minSafeR) {
-        params.minTurnRadius = minSafeR;
-        minTurnCtrl.setValue(minSafeR);
-        ribbons.forEach(r => r.minTurnRadius = minSafeR);
-      }
-    }
+    r.speed = params.motionSpeed;
+    r.orbitSpeed = params.orbitSpeed;
+    r.maxBoundaryRadius = params.boundaryRadius;
+    r.minTurnRadius = params.minTurnRadius;
+    r.waveAmp = params.waveAmplitude * 0.008;
+    r.waveFreq = params.waveFrequency;
+    r.splitChance = params.splitChance;
+    r.splitDuration = params.splitDuration;
+    r.splitSeparation = (params.splitSeparation * 0.065) / 5.0;
   });
 
-function setGlobalWidth(val) {
-  params.strokeWidthLimit = val;
-  limitCtrl.setValue(val);
-  ribbons.forEach(r => r.setWidthLimit(val * 0.008));
-  if (params.autoRadiusCoupling) {
-    const minSafeR = (val * 0.008) * 0.6;
-    if (params.minTurnRadius < minSafeR) {
-      params.minTurnRadius = minSafeR;
-      minTurnCtrl.setValue(minSafeR);
-      ribbons.forEach(r => r.minTurnRadius = minSafeR);
-    }
-  }
+  if (params.layer1Color && params.layer1Split && ribbons[0]) ribbons[0].setColors(params.layer1Color, params.layer1Split);
+  if (params.layer2Color && params.layer2Split && ribbons[1]) ribbons[1].setColors(params.layer2Color, params.layer2Split);
+  if (params.layer3Color && params.layer3Split && ribbons[2]) ribbons[2].setColors(params.layer3Color, params.layer3Split);
+
+  updateBloomCanvasStyle();
 }
 
-const fPresets = fPaper.addFolder('⚡ Пресеты толщины (0..10)');
-fPresets.add({ set: () => setGlobalWidth(1.5) }, 'set').name('🪡 Нить / волосок (1.5)');
-fPresets.add({ set: () => setGlobalWidth(3.8) }, 'set').name('✒️ Тонкое перо (3.8)');
-fPresets.add({ set: () => setGlobalWidth(7.0) }, 'set').name('🖌 Средний мазок (7.0)');
-fPresets.add({ set: () => setGlobalWidth(10.0) }, 'set').name('🎨 Полная кисть (10.0)');
-fPresets.close();
+// ── Mount Luxury Spectromorphology Control Rack ──
+const uiContainer = document.getElementById('ui-root');
+if (uiContainer) {
+  const engineBridge = {
+    getInitialSettings() {
+      return {
+        sectors: params.sectors,
+        mirror: params.mirror,
+        autoRotate: params.autoRotate,
+        rotateSpeed: params.rotationSpeed,
+        zoom: Math.round(params.zoom * 100),
 
-fPaper.add(params, 'roughness', 0.0, 10.0, 0.1).name('Рваный край (0..10)').onChange(v => {
-  const norm = v * 0.10;
-  ribbons.forEach(r => {
-    r.material.uniforms.uRoughness.value = norm;
-    r.splitMaterial.uniforms.uRoughness.value = norm;
-  });
-});
-fPaper.add(params, 'fiberIntensity', 0.0, 10.0, 0.1).name('Волокна бумаги (0..10)').onChange(v => {
-  const norm = v * 0.08;
-  ribbons.forEach(r => {
-    r.material.uniforms.uFiberIntensity.value = norm;
-    r.splitMaterial.uniforms.uFiberIntensity.value = norm;
-  });
-});
-fPaper.add(params, 'edgeBorder', 0.0, 10.0, 0.1).name('✒️ Тёмная кайма кромки (0..10)').onChange(v => {
-  const norm = v * 0.10;
-  ribbons.forEach(r => {
-    r.material.uniforms.uEdgeBorder.value = norm;
-    r.splitMaterial.uniforms.uEdgeBorder.value = norm;
-  });
-});
-fPaper.add(params, 'ribbonVolume', 0.0, 10.0, 0.1).name('🔮 3D объём и блик (0..10)').onChange(v => {
-  const norm = v * 0.10;
-  ribbons.forEach(r => {
-    r.material.uniforms.uRibbonVolume.value = norm;
-    r.splitMaterial.uniforms.uRibbonVolume.value = norm;
-  });
-});
-fPaper.add(params, 'widthSpeed', 0.0, 10.0, 0.1).name('Скорость дыхания (0..10)').onChange(v => {
-  ribbons.forEach(r => r.widthSpeed = v * 0.08);
-});
-fPaper.add(params, 'centerTaperStrength', 0.0, 10.0, 0.1).name('Сужение к центру (0..10)').onChange(v => {
-  ribbons.forEach(r => r.centerTaperStrength = v * 0.10);
-});
-fPaper.add(params, 'centerTaperRadius', 1.0, 10.0, 0.1).name('Радиус сужения (1..10)').onChange(v => {
-  ribbons.forEach(r => r.centerTaperRadius = v * 0.06);
-});
-fPaper.add(params, 'headTaperLength', 1.0, 10.0, 0.1).name('Длина острия (1..10)').onChange(v => {
-  ribbons.forEach(r => r.headTaperLength = v * 0.03);
-});
-fPaper.add(params, 'headTipWidth', 0.0, 10.0, 0.1).name('Толщина острия (0..10)').onChange(v => {
-  ribbons.forEach(r => r.headTipWidth = v * 0.01);
-});
+        theme: params.colorTheme,
+        colorTheme: params.colorTheme,
+        toneMap: params.toneMappingMode === 'agx' ? 'agx' : 'raw',
+        layers: {
+          core: {
+            visible: ribbons[0]?.group.visible ?? true,
+            primary: params.layer1Color,
+            split: params.layer1Split
+          },
+          middle: {
+            visible: ribbons[1]?.group.visible ?? true,
+            primary: params.layer2Color,
+            split: params.layer2Split
+          },
+          orbit: {
+            visible: ribbons[2]?.group.visible ?? true,
+            primary: params.layer3Color,
+            split: params.layer3Split
+          }
+        },
 
-// Подпапка: Независимая толщина мазков
-const fWidthVar = fPaper.addFolder('🔀 Независимая толщина мазков');
-fWidthVar.add(params, 'independentWidth').name('Вкл. независимую толщину').onChange(v => {
-  ribbons.forEach(r => r.independentWidth = v);
-});
-fWidthVar.add(params, 'widthAsymmetry', 0.0, 10.0, 0.1).name('Асинхронность (0..10)').onChange(v => {
-  applyWidthAsymmetry(v);
-});
-fWidthVar.add({ reroll: rerollBrushWidths }, 'reroll').name('🎲 Новые ритмы толщины');
+        strokeWidth: params.strokeWidthLimit,
+        roughEdge: params.roughness / 10.0,
+        fiberDensity: params.fiberIntensity / 10.0,
+        darkEdge: params.edgeBorder / 10.0,
+        highlight: params.ribbonVolume / 10.0,
+        breathSpeed: params.widthSpeed / 3.5,
+        centerTaper: params.centerTaperStrength / 10.0,
+        tipSharpness: Math.max(0, 1.0 - (params.headTipWidth / 0.05)),
 
-const fBg = gui.addFolder('🌌 Атмосфера и градиенты фона');
+        moveSpeed: params.motionSpeed,
+        orbitSpeed: params.orbitSpeed,
+        boundaryRadius: params.boundaryRadius,
+        minTurnRadius: params.minTurnRadius,
+        safeTurn: params.autoRadiusCoupling,
+        wobbleAmp: params.waveAmplitude / 10.0,
+        wobbleFreq: params.waveFrequency,
+        splitChance: Math.round(params.splitChance * 100),
+        branchSeparation: params.splitSeparation / 10.0,
+        splitDuration: params.splitDuration,
 
-let bgModeCtrl, intensityCtrl, speedCtrl, scaleCtrl, bgInnerCtrl, bgAccentCtrl, bgOuterCtrl, vigCtrl;
+        bloomEnabled: params.bloomEnabled ?? true,
+        neonBloom: params.neonBloom ?? 0.35,
+        bloomRadius: params.bloomRadius ?? 12.0,
+        bloomContrast: params.bloomContrast ?? 2.5,
 
-fBg.add(params, 'bgPreset', Object.keys(bgPresets))
-  .name('✨ Пресет атмосферы')
-  .onChange(presetName => {
-    const p = bgPresets[presetName];
-    if (!p) return;
-    params.bgMode = p.bgMode;
-    params.bgOuter = p.bgOuter;
-    params.bgInner = p.bgInner;
-    params.bgAccent = p.bgAccent;
-    params.nebulaIntensity = p.nebulaIntensity;
-    params.nebulaSpeed = p.nebulaSpeed;
-    params.nebulaScale = p.nebulaScale;
-    params.vignette = p.vignette;
+        bgMode: params.bgMode,
+        glow: params.nebulaIntensity / 10.0,
+        pulseSpeed: params.nebulaSpeed / 10.0,
+        bgScale: params.nebulaScale,
+        vignette: params.vignette,
+        grain: params.filmGrain / 10.0,
+        bgCenter: params.bgInner,
+        bgAccent: params.bgAccent,
+        bgDeep: params.bgOuter,
 
-    applyBgMode(p.bgMode);
-    kaleidoscopeMaterial.uniforms.uBgOuter.value.set(p.bgOuter);
-    kaleidoscopeMaterial.uniforms.uBgInner.value.set(p.bgInner);
-    kaleidoscopeMaterial.uniforms.uBgAccent.value.set(p.bgAccent);
-    kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = p.nebulaIntensity * 0.10;
-    kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = p.nebulaSpeed * 0.10;
-    kaleidoscopeMaterial.uniforms.uNebulaScale.value = p.nebulaScale;
-    kaleidoscopeMaterial.uniforms.uVignette.value = p.vignette;
+        persistent: params.persistentCanvas,
+        resolution: params.fboResolution,
+        wakeLock: params.keepAwake
+      };
+    },
+    getThemes() {
+      return Object.keys(COLOR_THEMES).map(k => {
+        const t = COLOR_THEMES[k];
+        return {
+          id: t.id || k,
+          title: k,
+          name: t.title || k,
+          mood: t.archetype,
+          archetype: t.archetype,
+          colors: t.colors || [t.layers[0].color, t.layers[1]?.color || '#00d2d3', t.layers[2]?.color || '#9b59b6'],
+          bg: t.bg || { center: t.bgInner, accent: t.bgAccent, deep: t.bgOuter },
+          bgMode: t.bgMode,
+          layers: t.layers
+        };
+      });
+    },
+    onParamChange(key, value) {
+      switch (key) {
+        case 'sectors':
+          params.sectors = value;
+          updateAllInstances();
+          break;
+        case 'mirror':
+          params.mirror = value;
+          updateAllInstances();
+          break;
+        case 'autoRotate':
+          params.autoRotate = value;
+          break;
+        case 'rotateSpeed':
+          params.rotationSpeed = value;
+          break;
+        case 'zoom':
+          params.zoom = value / 100.0;
+          kaleidoscopeMaterial.uniforms.uStrokeScale.value = (0.7 / initStrokeExtent) * (value / 100.0);
+          break;
+        case 'toneMap':
+          if (value === 'agx') {
+            renderer.toneMapping = THREE.AgXToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            params.toneMappingMode = 'agx';
+          } else {
+            renderer.toneMapping = THREE.NoToneMapping;
+            params.toneMappingMode = 'none';
+          }
+          break;
+        case 'strokeWidth':
+          params.strokeWidthLimit = value;
+          ribbons.forEach(r => r.widthLimit = value * 0.008);
+          break;
+        case 'roughEdge':
+          params.roughness = value * 10;
+          ribbons.forEach(r => {
+            r.material.uniforms.uRoughness.value = value;
+            r.splitMaterial.uniforms.uRoughness.value = value;
+          });
+          break;
+        case 'fiberDensity':
+          params.fiberIntensity = value * 10;
+          ribbons.forEach(r => {
+            r.material.uniforms.uFiberIntensity.value = value * 0.8;
+            r.splitMaterial.uniforms.uFiberIntensity.value = value * 0.8;
+          });
+          break;
+        case 'darkEdge':
+          params.edgeBorder = value * 10;
+          ribbons.forEach(r => {
+            r.material.uniforms.uEdgeBorder.value = value;
+            r.splitMaterial.uniforms.uEdgeBorder.value = value;
+          });
+          break;
+        case 'highlight':
+          params.ribbonVolume = value * 10;
+          ribbons.forEach(r => {
+            r.material.uniforms.uRibbonVolume.value = value;
+            r.splitMaterial.uniforms.uRibbonVolume.value = value;
+          });
+          break;
+        case 'breathSpeed':
+          params.widthSpeed = value * 3.5;
+          ribbons.forEach(r => r.widthSpeed = value * 0.22);
+          break;
+        case 'centerTaper':
+          params.centerTaperStrength = value * 10;
+          ribbons.forEach(r => r.centerTaperStrength = value);
+          break;
+        case 'tipSharpness':
+          params.headTipWidth = (1.0 - value) * 0.05;
+          ribbons.forEach(r => r.headTipWidth = (1.0 - value) * 0.05);
+          break;
+        case 'moveSpeed':
+          params.motionSpeed = value;
+          ribbons.forEach(r => r.speed = value);
+          break;
+        case 'orbitSpeed':
+          params.orbitSpeed = value;
+          ribbons.forEach(r => r.orbitSpeed = value);
+          break;
+        case 'boundaryRadius':
+          params.boundaryRadius = value;
+          ribbons.forEach(r => r.maxBoundaryRadius = value);
+          break;
+        case 'minTurnRadius':
+          params.minTurnRadius = value;
+          ribbons.forEach(r => r.minTurnRadius = value);
+          break;
+        case 'safeTurn':
+          params.autoRadiusCoupling = value;
+          break;
+        case 'wobbleAmp':
+          params.waveAmplitude = value * 10;
+          ribbons.forEach(r => r.waveAmp = value * 0.08);
+          break;
+        case 'wobbleFreq':
+          params.waveFrequency = value;
+          ribbons.forEach(r => r.waveFreq = value);
+          break;
+        case 'splitChance':
+          params.splitChance = value / 100.0;
+          ribbons.forEach(r => r.splitChance = value / 100.0);
+          break;
+        case 'branchSeparation':
+          params.splitSeparation = value * 10;
+          ribbons.forEach(r => r.splitSeparation = (value * 0.065) / 0.5);
+          break;
+        case 'splitDuration':
+          params.splitDuration = value;
+          ribbons.forEach(r => r.splitDuration = value);
+          break;
+        case 'bloomEnabled':
+          params.bloomEnabled = value;
+          updateBloomCanvasStyle();
+          break;
+        case 'neonBloom':
+          params.neonBloom = value;
+          updateBloomCanvasStyle();
+          break;
+        case 'bloomRadius':
+          params.bloomRadius = value;
+          updateBloomCanvasStyle();
+          break;
+        case 'bloomContrast':
+          params.bloomContrast = value;
+          break;
+        case 'bgMode':
+          params.bgMode = value;
+          applyBgMode(value);
+          break;
+        case 'glow':
+          params.nebulaIntensity = value * 10;
+          kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = value;
+          break;
+        case 'pulseSpeed':
+          params.nebulaSpeed = value * 10;
+          kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = value * 0.25;
+          break;
+        case 'bgScale':
+          params.nebulaScale = value;
+          kaleidoscopeMaterial.uniforms.uNebulaScale.value = value;
+          break;
+        case 'vignette':
+          params.vignette = value;
+          kaleidoscopeMaterial.uniforms.uVignette.value = value;
+          break;
+        case 'grain':
+          params.filmGrain = value * 10;
+          kaleidoscopeMaterial.uniforms.uFilmGrain.value = value * 0.1;
+          break;
+        case 'bgCenter':
+          params.bgInner = value;
+          kaleidoscopeMaterial.uniforms.uBgInner.value.set(value);
+          break;
+        case 'bgAccent':
+          params.bgAccent = value;
+          kaleidoscopeMaterial.uniforms.uBgAccent.value.set(value);
+          break;
+        case 'bgDeep':
+          params.bgOuter = value;
+          kaleidoscopeMaterial.uniforms.uBgOuter.value.set(value);
+          break;
+        case 'persistent':
+          params.persistentCanvas = value;
+          break;
+        case 'resolution':
+          setFboResolution(value);
+          break;
+        case 'wakeLock':
+          params.keepAwake = value;
+          break;
+      }
+      saveCurrentSettings();
+    },
+    onLayerChange(layerId, partial) {
+      const idx = layerId === 'core' ? 0 : layerId === 'middle' ? 1 : 2;
+      const r = ribbons[idx];
+      if (!r) return;
+      if (partial.visible !== undefined) {
+        r.group.visible = partial.visible;
+      }
+      if (partial.primary !== undefined) {
+        r.material.uniforms.uBaseColor.value.set(partial.primary);
+        if (idx === 0) params.layer1Color = partial.primary;
+        else if (idx === 1) params.layer2Color = partial.primary;
+        else if (idx === 2) params.layer3Color = partial.primary;
+      }
+      if (partial.split !== undefined) {
+        r.splitMaterial.uniforms.uBaseColor.value.set(partial.split);
+        if (idx === 0) params.layer1Split = partial.split;
+        else if (idx === 1) params.layer2Split = partial.split;
+        else if (idx === 2) params.layer3Split = partial.split;
+      }
+      saveCurrentSettings();
+    },
+    onApplyTheme(themeId) {
+      const tKey = Object.keys(COLOR_THEMES).find(k => COLOR_THEMES[k].id === themeId || k === themeId);
+      if (tKey) {
+        applyColorTheme(tKey);
+        saveCurrentSettings();
+      }
+    },
+    onSplitNow() {
+      ribbons.forEach(r => r.forceSplit());
+    },
+    onReroll() {
+      const themeKeys = Object.keys(COLOR_THEMES);
+      const randTheme = themeKeys[Math.floor(Math.random() * themeKeys.length)];
+      applyColorTheme(randTheme);
 
-    if (bgModeCtrl) bgModeCtrl.updateDisplay();
-    if (bgOuterCtrl) bgOuterCtrl.updateDisplay();
-    if (bgInnerCtrl) bgInnerCtrl.updateDisplay();
-    if (bgAccentCtrl) bgAccentCtrl.updateDisplay();
-    if (intensityCtrl) intensityCtrl.updateDisplay();
-    if (speedCtrl) speedCtrl.updateDisplay();
-    if (scaleCtrl) scaleCtrl.updateDisplay();
-    if (vigCtrl) vigCtrl.updateDisplay();
-  });
+      const sectorStops = [4, 6, 8, 12, 16, 24];
+      params.sectors = sectorStops[Math.floor(Math.random() * sectorStops.length)];
+      params.mirror = Math.random() > 0.3;
+      updateAllInstances();
 
-bgModeCtrl = fBg.add(params, 'bgMode', {
-  '🌌 Дыхание Бездны (Небула)': 'nebula',
-  '🌊 Циклические волны (Пульс)': 'waves',
-  '🌠 Северное сияние (Аврора)': 'aurora',
-  '🔘 Мягкий радиальный': 'radial',
-  '⬛ Сплошной тёмный': 'solid'
-}).name('Режим свечения').onChange(v => {
-  applyBgMode(v);
-});
+      rerollBrushSpeeds();
+      rerollBrushWidths();
+      saveCurrentSettings();
+    },
+    onClearCanvas() {
+      renderer.setRenderTarget(strokeRenderTarget);
+      renderer.setClearColor(0x000000, 0.0);
+      renderer.clear();
+      renderer.setRenderTarget(null);
+    },
+    onReset() {
+      localStorage.removeItem(STORAGE_KEY);
+      applyColorTheme('🌌 Авторский Оригинал (Полночный Индиго)');
+      params.sectors = 8;
+      params.mirror = true;
+      params.zoom = 1.0;
+      params.autoRotate = false;
+      params.rotationSpeed = 0.15;
+      params.motionSpeed = 1.1;
+      params.orbitSpeed = 0.2;
+      params.boundaryRadius = 0.58;
+      params.minTurnRadius = 0.08;
+      params.fixedPathTrail = true;
+      params.trailLength = 1.5;
+      params.waveAmplitude = 4.8;
+      params.waveFrequency = 4.8;
+      params.randomSpeedMode = true;
+      params.speedVariance = 6.5;
+      params.dynamicSpeedDrift = true;
+      params.speedDriftIntensity = 5.5;
+      params.strokeWidthLimit = 4.0;
+      params.roughness = isSoftwareRenderer ? 0.0 : 3.5;
+      params.fiberIntensity = isSoftwareRenderer ? 0.0 : 3.5;
+      params.edgeBorder = 0.0;
+      params.ribbonVolume = 0.0;
+      params.widthSpeed = 2.8;
+      params.centerTaperStrength = 8.5;
+      params.centerTaperRadius = 5.8;
+      params.headTaperLength = 5.0;
+      params.headTipWidth = 2.0;
+      params.independentWidth = true;
+      params.widthAsymmetry = 6.5;
+      params.bloomEnabled = true;
+      params.neonBloom = 0.35;
+      params.bloomRadius = 12.0;
+      params.bloomContrast = 2.5;
+      params.bgMode = 'nebula';
+      params.bgPreset = '🌑 Монохромный Графит';
+      params.bgInner = '#0c1527';
+      params.bgOuter = '#030406';
+      params.bgAccent = '#160a22';
+      params.nebulaIntensity = 5.5;
+      params.nebulaSpeed = 2.5;
+      params.nebulaScale = 1.4;
+      params.vignette = 0.75;
+      params.dropShadow = 0.0;
+      params.filmGrain = 0.0;
+      params.persistentCanvas = false;
+      initialSpeedRatios[0] = 0.82;
+      initialSpeedRatios[1] = 1.26;
+      initialSpeedRatios[2] = 1.02;
+      initialWidthRatios[0] = 0.72;
+      initialWidthRatios[1] = 1.38;
+      initialWidthRatios[2] = 0.96;
+      updateAllInstances();
+      ribbons.forEach(r => {
+        r.group.visible = true;
+      });
+      applyAllParams();
+      updateBloomCanvasStyle();
+      saveCurrentSettings();
+    },
+    onImport(raw) {
+      if (!raw || typeof raw !== 'object') return false;
+      try {
+        for (const k of Object.keys(raw)) {
+          if (k in params) {
+            engineBridge.onParamChange(k, raw[k]);
+          }
+        }
+        if (raw.layers) {
+          if (raw.layers.core) engineBridge.onLayerChange('core', raw.layers.core);
+          if (raw.layers.middle) engineBridge.onLayerChange('middle', raw.layers.middle);
+          if (raw.layers.orbit) engineBridge.onLayerChange('orbit', raw.layers.orbit);
+        }
+        saveCurrentSettings();
+        return true;
+      } catch (e) {
+        console.error('Import failed', e);
+        return false;
+      }
+    }
+  };
 
-intensityCtrl = fBg.add(params, 'nebulaIntensity', 0.0, 10.0, 0.1)
-  .name('Яркость свечения (0..10)')
-  .onChange(v => {
-    kaleidoscopeMaterial.uniforms.uNebulaIntensity.value = v * 0.10;
-  });
+  // Restore saved settings on startup if present in localStorage
+  loadSavedSettings();
 
-speedCtrl = fBg.add(params, 'nebulaSpeed', 0.1, 10.0, 0.1)
-  .name('Скорость дыхания (0..10)')
-  .onChange(v => {
-    kaleidoscopeMaterial.uniforms.uNebulaSpeed.value = v * 0.10;
-  });
-
-scaleCtrl = fBg.add(params, 'nebulaScale', 0.5, 3.0, 0.1)
-  .name('Размытость / Масштаб')
-  .onChange(v => {
-    kaleidoscopeMaterial.uniforms.uNebulaScale.value = v;
-  });
-
-bgInnerCtrl = fBg.addColor(params, 'bgInner').name('Основной свет (центр)').onChange(hex => {
-  kaleidoscopeMaterial.uniforms.uBgInner.value.set(hex);
-});
-
-bgAccentCtrl = fBg.addColor(params, 'bgAccent').name('Акцентный свет (небула)').onChange(hex => {
-  kaleidoscopeMaterial.uniforms.uBgAccent.value.set(hex);
-});
-
-bgOuterCtrl = fBg.addColor(params, 'bgOuter').name('Глубокая тьма (края)').onChange(hex => {
-  kaleidoscopeMaterial.uniforms.uBgOuter.value.set(hex);
-});
-
-vigCtrl = fBg.add(params, 'vignette', 0.0, 1.0, 0.05).name('Виньетка').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uVignette.value = v;
-});
-
-fBg.add(params, 'filmGrain', 0.0, 10.0, 0.1).name('Зернистость плёнки (0..10)').onChange(v => {
-  kaleidoscopeMaterial.uniforms.uFilmGrain.value = v;
-});
-
-// Папка: Управление сохранением (localStorage)
-const fStorage = gui.addFolder('💾 Настройки и память (localStorage)');
-fStorage.add({ saveNow: () => saveCurrentSettings(true) }, 'saveNow').name('💾 Запомнить сейчас');
-fStorage.add(storageParams, 'autoSave').name('🔄 Автосохранение правок');
-fStorage.add({ resetNow: resetToDefaultSettings }, 'resetNow').name('↺ Сбросить к заводским');
-fStorage.close();
-
-// Listen for any controller adjustments to automatically save if autoSave is active
-gui.onFinishChange(() => {
-  if (!isRestoringSettings && storageParams.autoSave) {
-    saveCurrentSettings(false);
-  }
-});
-
-// Restore saved settings on startup if present in localStorage
-loadSavedSettings(true);
+  mountControlPanel(uiContainer, engineBridge);
+}
 
 // Resize Handler: maintains aspect ratio for both display shader and debug camera
 function handleResize() {
@@ -1539,6 +1266,7 @@ if (typeof document !== 'undefined') {
         cancelAnimationFrame(rafId);
         rafId = null;
       }
+      fpsStore.set(0, 0);
       if (perfFpsEl) {
         perfFpsEl.textContent = 'ЭКРАН ВЫКЛ (0% GPU)';
         perfFpsEl.style.color = '#a0aec0';
@@ -1671,6 +1399,13 @@ function animate(rafTimestamp) {
     kaleidoscopeMaterial.uniforms.uBreath.value = 0.82 + 0.18 * Math.sin(tNeb * 0.65);
 
     renderer.render(mainScene, mainCamera);
+
+  // Soft Neon Bloom Layer update (every 2 frames at 1/5 downscaled resolution)
+  if (frameCounter % 2 === 0 && bctx && bloomCanvas && params.bloomEnabled && (params.neonBloom ?? 0.0) > 0.005) {
+    bctx.clearRect(0, 0, bloomCanvas.width, bloomCanvas.height);
+    bctx.filter = `contrast(${params.bloomContrast || 2.5}) brightness(0.9)`;
+    bctx.drawImage(renderer.domElement, 0, 0, bloomCanvas.width, bloomCanvas.height);
+  }
   }
 
   const tGpuEnd = performance.now();
@@ -1722,6 +1457,9 @@ function animate(rafTimestamp) {
       drawCalls: calls,
       triangles: triangles
     };
+
+    // Feed real-time telemetry to React toolbar badge
+    fpsStore.set(Math.round(avgFps), avgFrameTime, calls, triangles);
 
     // Dynamic Fillrate Auto-Defense (if device struggles with full FBM/fillrate)
     if (avgFps < 15 && !hasAutoDegraded && (elapsedTime > 2.0 && elapsedTime < 25.0)) {

@@ -11,8 +11,8 @@ export function createPaperMaterial(colorHex = 0xff3b56) {
       uOpacity: { value: 0.92 },
       uRoughness: { value: 0.35 },      // torn deckled edge roughness
       uFiberIntensity: { value: 0.28 }, // pulp/fiber texture
-      uEdgeBorder: { value: 0.65 },     // dark ink edge rim for clear layer occlusion
-      uRibbonVolume: { value: 0.55 },   // 3D cylindrical volume shading
+      uEdgeBorder: { value: 0.0 },     // dark ink edge rim for clear layer occlusion
+      uRibbonVolume: { value: 0.0 },   // 3D cylindrical volume shading
       uTime: { value: 0.0 }
     },
     vertexShader: /* glsl */ `
